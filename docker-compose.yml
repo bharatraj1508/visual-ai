@@ -5,7 +5,7 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - DATABASE_URL=postgresql://postgres:postgres@db:5432/visual_ai
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/visual_ai
       - ENV=development
     depends_on:
       db:
@@ -15,7 +15,7 @@ services:
     image: postgres:16-alpine
     container_name: postgres_db
     ports:
-      - "5432:5432"
+      - "5433:5432"
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres

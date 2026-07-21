@@ -1,7 +1,9 @@
 from fastapi import APIRouter
+from app.api.v1.endpoints.health import router as health_router
 
 # Initialize the main API router for version 1
 api_router = APIRouter()
 
-# In the future, we will include specific feature routers like this:
-# api_router.include_router(dataset_router, prefix="/datasets", tags=["datasets"])
+# Register endpoint sub-routers
+api_router.include_router(health_router, prefix="/health", tags=["health"])
+

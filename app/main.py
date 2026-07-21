@@ -3,21 +3,27 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.core.logging import logger
 
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Log that the app is starting up
+    logger.info("Application starting up in %s environment...", settings.ENV)
+    yield
+    # Log that the app is shutting down
+    logger.info("Application shutting down...")
+
+
 # Initialize application
 app = FastAPI(
     title=settings.PROJECT_NAME,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    lifespan=lifespan,
 )
 
 # Register the main version 1 router
-# All endpoints registered inside api_router will automatically get the "/api/v1" prefix.
 app.include_router(api_router, prefix=settings.API_V1_STR)
 
-
-@app.on_event("startup")
-async def startup_event():
-    # Log that the app is ready using our configured logger
-    logger.info("Application starting up in %s environment...", settings.ENV)
 
 
 @app.get("/")
