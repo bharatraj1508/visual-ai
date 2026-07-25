@@ -6,6 +6,7 @@ from app.models.chat_session import ChatSession
 from app.models.dataset import Dataset, DatasetStatus
 from app.models.dataset_column import DatasetColumn
 from app.models.message import Message
+from app.models.report import Report, ReportStatus
 from app.models.user import User
 
 __all__ = [
@@ -17,4 +18,6 @@ __all__ = [
     "ChatSession",
     "Message",
     "Artifact",
+    "Report",
+    "ReportStatus",
 ]
