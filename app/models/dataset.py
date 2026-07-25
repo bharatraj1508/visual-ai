@@ -13,6 +13,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.models.base import Base, TimestampMixin, UUIDMixin
 
 if TYPE_CHECKING:
+    from app.models.dataset_column import DatasetColumn
     from app.models.user import User
 
 
@@ -42,3 +43,8 @@ class Dataset(UUIDMixin, TimestampMixin, Base):
     error: Mapped[str | None] = mapped_column(String(2048), nullable=True)
 
     owner: Mapped["User"] = relationship(back_populates="datasets")
+    columns: Mapped[list["DatasetColumn"]] = relationship(
+        back_populates="dataset",
+        cascade="all, delete-orphan",
+        order_by="DatasetColumn.position",
+    )
