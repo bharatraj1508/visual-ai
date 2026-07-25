@@ -15,10 +15,12 @@ test.db
 log.txt
 Pipfile.lock
 env3.*
-env
+.env
 docs_build
 site_build
-venv
+.venv
+# uploaded datasets + parquet cache
+storage/
 docs.zip
 archive.zip
 
@@ -31,3 +33,19 @@ archive.zip
 .DS_Store
 
 .codspeed
+
+# Node / Turborepo / Next.js
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+.yarn/
+.pnp.*
+# local env files (keep .env.example tracked)
+.env.local
+.env*.local
+.env.development.local
+.env.test.local
+.env.production.local
