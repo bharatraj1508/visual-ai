@@ -1,0 +1,10 @@
+Alembic migrations for visual-ai.
+
+Common commands (run from the project root, with the Postgres service up):
+
+    alembic upgrade head                      # apply all migrations
+    alembic revision --autogenerate -m "msg"  # generate a new migration from model changes
+    alembic downgrade -1                       # roll back one migration
+
+The DB URL and target metadata are wired from app settings in env.py, so no
+sqlalchemy.url needs to be set in alembic.ini.

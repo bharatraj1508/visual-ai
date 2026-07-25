@@ -19,6 +19,8 @@ env3.*
 docs_build
 site_build
 .venv
+# uploaded datasets + parquet cache
+storage/
 docs.zip
 archive.zip
 
