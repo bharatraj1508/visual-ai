@@ -26,6 +26,9 @@ def build_model() -> ChatGoogleGenerativeAI:
         model=settings.GEMINI_MODEL,
         google_api_key=settings.GOOGLE_API_KEY.get_secret_value(),
         temperature=0,
+        # Fail fast: don't sit in long backoff retries on rate limits/errors —
+        # surface the failure to the client immediately instead.
+        max_retries=0,
     )
 
 

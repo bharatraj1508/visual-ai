@@ -162,15 +162,27 @@ async def send_message(
 
     async def event_generator():
         assistant_parts: list[str] = []
+        errored = False
         async for ev in stream_agent_events(agent, lc_messages, collector):
             if ev["event"] == "token":
                 assistant_parts.append(ev["data"])
+            elif ev["event"] == "error":
+                errored = True
             yield ev
+
+        content = "".join(assistant_parts).strip()
+        # Don't persist an empty assistant turn when the run errored with no output.
+        if not content and not collector:
+            yield {
+                "event": "done",
+                "data": json.dumps({"message_id": None, "errored": errored}),
+            }
+            return
 
         assistant_msg = Message(
             session_id=session.id,
             role="assistant",
-            content="".join(assistant_parts).strip(),
+            content=content,
         )
         db.add(assistant_msg)
         await db.flush()

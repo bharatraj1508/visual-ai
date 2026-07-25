@@ -13,6 +13,9 @@ from __future__ import annotations
 import json
 from typing import AsyncIterator
 
+from langgraph.errors import GraphRecursionError
+
+from app.core.config import settings
 from app.core.logging import logger
 
 
@@ -40,7 +43,9 @@ async def stream_agent_events(
     flushed = 0
     try:
         async for event in agent.astream_events(
-            {"messages": messages}, version="v2"
+            {"messages": messages},
+            version="v2",
+            config={"recursion_limit": settings.AGENT_RECURSION_LIMIT},
         ):
             kind = event["event"]
             if kind == "on_chat_model_stream":
@@ -67,6 +72,19 @@ async def stream_agent_events(
                         "data": json.dumps(collector[flushed], default=str),
                     }
                     flushed += 1
+    except GraphRecursionError:
+        logger.warning("Agent hit the recursion limit")
+        yield {
+            "event": "error",
+            "data": json.dumps(
+                {
+                    "detail": (
+                        "The assistant took too many steps without finishing. "
+                        "Try rephrasing or narrowing your question."
+                    )
+                }
+            ),
+        }
     except Exception as exc:  # noqa: BLE001 — surface any agent failure to the client
         logger.exception("Agent run failed")
         yield {"event": "error", "data": json.dumps({"detail": str(exc)})}

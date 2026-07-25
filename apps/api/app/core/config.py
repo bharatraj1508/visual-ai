@@ -17,7 +17,10 @@ class Settings(BaseSettings):
     # AI Provider API Keys (Make optional for now)
     GOOGLE_API_KEY: Optional[SecretStr] = None
     # Default Gemini model used by the agent. flash is cheap/fast; swap to -pro for harder analysis.
-    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_MODEL: str = "gemini-3.5-flash"
+    # Max ReAct steps (model <-> tool round-trips) before LangGraph aborts.
+    # Guards against the agent looping on a hard question.
+    AGENT_RECURSION_LIMIT: int = 50
 
     # Security / Auth (JWT). SECRET_KEY MUST be overridden in production via .env.
     SECRET_KEY: str = "dev-secret-change-me-in-production"
