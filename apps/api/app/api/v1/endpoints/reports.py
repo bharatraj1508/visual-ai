@@ -175,10 +175,38 @@ async def report_versions(
             Report.user_id == user.id,
             Report.dataset_id == report.dataset_id,
             Report.goal == report.goal,
+            Report.archived.is_(False),
         )
         .order_by(Report.created_at.asc())
     )
     return list(result)
+
+
+@router.post("/{report_id}/archive", response_model=ReportRead)
+async def archive_report(
+    report_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Soft-delete a single report version; restorable from the archived view."""
+    report = await _get_owned_report(report_id, user, db)
+    report.archived = True
+    await db.commit()
+    await db.refresh(report)
+    return report
+
+
+@router.post("/{report_id}/unarchive", response_model=ReportRead)
+async def unarchive_report(
+    report_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    report = await _get_owned_report(report_id, user, db)
+    report.archived = False
+    await db.commit()
+    await db.refresh(report)
+    return report
 
 
 @router.get("/{report_id}/stream")
@@ -317,10 +345,13 @@ def _content_stats(content) -> tuple[int, int, list[str]]:
 @router.get("", response_model=list[ReportRead])
 async def list_reports(
     dataset_id: uuid.UUID | None = None,
+    archived: bool = False,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    query = select(Report).where(Report.user_id == user.id)
+    query = select(Report).where(
+        Report.user_id == user.id, Report.archived == archived
+    )
     if dataset_id is not None:
         query = query.where(Report.dataset_id == dataset_id)
     result = await db.scalars(query.order_by(Report.created_at.desc()))

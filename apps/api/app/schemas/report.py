@@ -34,6 +34,7 @@ class ReportRead(BaseModel):
     input_tokens: int | None = None
     output_tokens: int | None = None
     cost_usd: float | None = None
+    archived: bool = False
     # Lightweight content stats for list views (computed from `content`), so the
     # dashboard can show how many sections/charts a report has and which chart
     # types it uses — without shipping the full report body.

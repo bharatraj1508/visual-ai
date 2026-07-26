@@ -135,12 +135,13 @@ async def upload_dataset(
 
 @router.get("", response_model=list[DatasetRead])
 async def list_datasets(
+    archived: bool = False,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     result = await db.scalars(
         select(Dataset)
-        .where(Dataset.user_id == user.id)
+        .where(Dataset.user_id == user.id, Dataset.archived == archived)
         .order_by(Dataset.created_at.desc())
     )
     return list(result)
@@ -258,13 +259,28 @@ async def rename_dataset(
     return dataset
 
 
-@router.delete("/{dataset_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_dataset(
+@router.post("/{dataset_id}/archive", response_model=DatasetRead)
+async def archive_dataset(
+    dataset_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Soft-delete: hide the dataset but keep its data so it can be restored."""
+    dataset = await _get_owned_dataset(dataset_id, user, db)
+    dataset.archived = True
+    await db.commit()
+    await db.refresh(dataset)
+    return dataset
+
+
+@router.post("/{dataset_id}/unarchive", response_model=DatasetRead)
+async def unarchive_dataset(
     dataset_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     dataset = await _get_owned_dataset(dataset_id, user, db)
-    await db.delete(dataset)
+    dataset.archived = False
     await db.commit()
-    storage.remove_dataset_files(user.id, dataset_id)
+    await db.refresh(dataset)
+    return dataset

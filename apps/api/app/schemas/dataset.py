@@ -40,6 +40,7 @@ class DatasetRead(BaseModel):
     col_count: int | None
     error: str | None
     created_at: datetime
+    archived: bool = False
     preprocessed: bool = False
     # At ingest: what cleaning WOULD do (drives the recommendation card).
     # After preprocessing: what was applied.

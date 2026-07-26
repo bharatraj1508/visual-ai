@@ -49,6 +49,10 @@ class Dataset(UUIDMixin, TimestampMixin, Base):
         Boolean, default=False, nullable=False, server_default="false"
     )
     preprocessing_summary: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Soft delete: archived datasets are hidden by default but can be restored.
+    archived: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
 
     owner: Mapped["User"] = relationship(back_populates="datasets")
     columns: Mapped[list["DatasetColumn"]] = relationship(
