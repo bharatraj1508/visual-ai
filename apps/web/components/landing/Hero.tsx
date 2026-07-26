@@ -87,12 +87,24 @@ export default function Hero() {
             </a>
           </motion.div>
 
-          <motion.p
+          <motion.div
             variants={fadeUp}
-            className="mt-6 font-mono text-xs text-gray-400"
+            className="mt-7 flex flex-wrap items-center gap-2"
           >
-            CSV in → analyst-grade report out. No prompt engineering.
-          </motion.p>
+            {[
+              { icon: <FileIcon />, label: "PDF & ZIP export" },
+              { icon: <SparkIcon />, label: "Interactive charts" },
+              { icon: <CoinIcon />, label: "~$0.006 / report" },
+            ].map((chip) => (
+              <span
+                key={chip.label}
+                className="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white/70 px-3 py-1.5 font-mono text-[11px] text-gray-500 backdrop-blur"
+              >
+                <span className="text-primary">{chip.icon}</span>
+                {chip.label}
+              </span>
+            ))}
+          </motion.div>
         </motion.div>
 
         <motion.div
@@ -104,5 +116,42 @@ export default function Hero() {
         </motion.div>
       </div>
     </section>
+  );
+}
+
+const chipIcon = {
+  width: 12,
+  height: 12,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+function FileIcon() {
+  return (
+    <svg {...chipIcon}>
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+      <path d="M14 2v6h6" />
+    </svg>
+  );
+}
+function SparkIcon() {
+  return (
+    <svg {...chipIcon}>
+      <path d="M3 3v18h18" />
+      <rect x="7" y="12" width="3" height="5" />
+      <rect x="12" y="8" width="3" height="9" />
+      <rect x="17" y="14" width="3" height="3" />
+    </svg>
+  );
+}
+function CoinIcon() {
+  return (
+    <svg {...chipIcon}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M14.5 9.5A2.5 2.5 0 0 0 12 8c-1.5 0-2.5.8-2.5 2s1 1.6 2.5 2 2.5.9 2.5 2-1 2-2.5 2a2.5 2.5 0 0 1-2.5-1.5M12 6.5v11" />
+    </svg>
   );
 }

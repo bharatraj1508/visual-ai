@@ -10,6 +10,7 @@ const LINKS = [
   { label: "Reports", href: "#showcase" },
   { label: "Problem statements", href: "#problem-statement" },
   { label: "Dashboard", href: "#dashboard" },
+  { label: "Charts", href: "#charts" },
 ];
 
 export default function LandingNav() {
@@ -39,7 +40,7 @@ export default function LandingNav() {
           </span>
         </Link>
 
-        <div className="hidden items-center gap-8 md:flex">
+        <div className="hidden items-center gap-6 lg:flex">
           {LINKS.map((l) => (
             <a
               key={l.href}
