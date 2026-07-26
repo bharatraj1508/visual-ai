@@ -17,6 +17,7 @@ import {
 import { useReports } from "@/services/api/requests/reports";
 import { Dataset } from "@/types/dataset";
 import { Report } from "@/types/report";
+import { chartLabel } from "@/utils/charts";
 import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/utils/config";
 import { formatCostDual, formatInr } from "@/utils/currency";
 
@@ -49,10 +50,20 @@ export default function DashboardPage() {
         (b.output_tokens ?? 0) - (a.output_tokens ?? 0) ||
         (b.cost_usd ?? 0) - (a.cost_usd ?? 0),
     )[0];
-    const recent = [...rs]
-      .sort((a, b) => +new Date(b.created_at) - +new Date(a.created_at))
-      .slice(0, 6);
+    const recent = [...rs].sort(
+      (a, b) => +new Date(b.created_at) - +new Date(a.created_at),
+    );
     const nameById = new Map(ds.map((d) => [d.id, d.filename] as const));
+    // Which chart types you use most, across every report.
+    const mixCounts = new Map<string, number>();
+    for (const r of rs)
+      for (const t of r.chart_types ?? [])
+        mixCounts.set(t, (mixCounts.get(t) ?? 0) + 1);
+    const chartMix = Array.from(mixCounts.entries())
+      .map(([type, count]) => ({ type, count }))
+      .sort((a, b) => b.count - a.count);
+    const totalCharts = rs.reduce((s, r) => s + (r.chart_count ?? 0), 0);
+    const avgCost = completed.length ? totalSpent / completed.length : 0;
     return {
       totalSpent,
       rowsAnalyzed,
@@ -62,6 +73,9 @@ export default function DashboardPage() {
       featured,
       recent,
       nameById,
+      chartMix,
+      totalCharts,
+      avgCost,
     };
   }, [datasets, reports]);
 
@@ -150,58 +164,70 @@ export default function DashboardPage() {
               />
             </section>
 
-            {/* Featured report */}
-            {stats.featured && (
-              <FeaturedReport
-                report={stats.featured}
-                datasetName={stats.nameById.get(stats.featured.dataset_id)}
-                onOpen={() => router.push(`/reports/${stats.featured!.id}`)}
-              />
-            )}
-
-            <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
-              {/* Datasets */}
-              <section className="lg:col-span-2">
-                <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-400">
-                  Your datasets
-                </h2>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {datasets.map((dataset) => (
-                    <DatasetCard
-                      key={dataset.id}
-                      dataset={dataset}
-                      reportCount={stats.reportsByDataset.get(dataset.id) ?? 0}
-                      onAnalyze={() => router.push(`/analyze/${dataset.id}`)}
-                      onDelete={() =>
-                        remove.mutate(dataset.id, { onError: showError })
+            {/* Featured report + chart mix */}
+            {(stats.featured || stats.chartMix.length > 0) && (
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+                {stats.featured && (
+                  <div className="lg:col-span-2">
+                    <FeaturedReport
+                      report={stats.featured}
+                      datasetName={stats.nameById.get(
+                        stats.featured.dataset_id,
+                      )}
+                      onOpen={() =>
+                        router.push(`/reports/${stats.featured!.id}`)
                       }
                     />
-                  ))}
-                </div>
-              </section>
-
-              {/* Recent reports */}
-              <section>
-                <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-400">
-                  Recent reports
-                </h2>
-                {stats.recent.length === 0 ? (
-                  <p className="rounded-2xl border border-dashed border-gray-200 bg-white p-6 text-center text-sm text-gray-400">
-                    No reports yet. Analyze a dataset to generate one.
-                  </p>
-                ) : (
-                  <div className="divide-y divide-gray-100 rounded-2xl border border-gray-200 bg-white">
-                    {stats.recent.map((report) => (
-                      <RecentReportRow
-                        key={report.id}
-                        report={report}
-                        onOpen={() => router.push(`/reports/${report.id}`)}
-                      />
-                    ))}
                   </div>
                 )}
+                {stats.chartMix.length > 0 && (
+                  <ChartMixWidget
+                    mix={stats.chartMix}
+                    totalCharts={stats.totalCharts}
+                  />
+                )}
+              </div>
+            )}
+
+            {/* Reports table */}
+            {stats.recent.length > 0 && (
+              <section>
+                <div className="mb-4 flex items-center justify-between">
+                  <h2 className="text-xs font-semibold uppercase tracking-wider text-gray-400">
+                    All reports
+                  </h2>
+                  <span className="text-xs text-gray-400">
+                    avg {formatInr(stats.avgCost)} · {stats.totalCharts} charts
+                    total
+                  </span>
+                </div>
+                <ReportsTable
+                  reports={stats.recent}
+                  nameById={stats.nameById}
+                  onOpen={(id) => router.push(`/reports/${id}`)}
+                />
               </section>
-            </div>
+            )}
+
+            {/* Datasets */}
+            <section>
+              <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-400">
+                Your datasets
+              </h2>
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {datasets.map((dataset) => (
+                  <DatasetCard
+                    key={dataset.id}
+                    dataset={dataset}
+                    reportCount={stats.reportsByDataset.get(dataset.id) ?? 0}
+                    onAnalyze={() => router.push(`/analyze/${dataset.id}`)}
+                    onDelete={() =>
+                      remove.mutate(dataset.id, { onError: showError })
+                    }
+                  />
+                ))}
+              </div>
+            </section>
           </div>
         )}
       </main>
@@ -341,41 +367,122 @@ function DatasetCard({
   );
 }
 
-function RecentReportRow({
-  report,
+function ChartMixWidget({
+  mix,
+  totalCharts,
+}: {
+  mix: { type: string; count: number }[];
+  totalCharts: number;
+}) {
+  const max = mix[0]?.count ?? 1;
+  return (
+    <div className="rounded-2xl border border-gray-200 bg-white p-5">
+      <h3 className="text-sm font-semibold text-gray-900">Chart mix</h3>
+      <p className="mb-4 text-xs text-gray-400">
+        {totalCharts} charts across your reports
+      </p>
+      <ul className="space-y-2.5">
+        {mix.slice(0, 7).map(({ type, count }) => (
+          <li key={type} className="flex items-center gap-3">
+            <span className="w-24 shrink-0 truncate text-xs font-medium text-gray-600">
+              {chartLabel(type)}
+            </span>
+            <div className="h-2 flex-1 overflow-hidden rounded-full bg-gray-100">
+              <div
+                className="h-full rounded-full bg-primary/70"
+                style={{ width: `${Math.max(8, (count / max) * 100)}%` }}
+              />
+            </div>
+            <span className="w-5 shrink-0 text-right text-xs tabular-nums text-gray-400">
+              {count}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function ChartBadges({ types }: { types: string[] }) {
+  if (!types.length) return <span className="text-xs text-gray-300">—</span>;
+  const shown = types.slice(0, 3);
+  return (
+    <div className="flex flex-wrap gap-1">
+      {shown.map((t) => (
+        <span
+          key={t}
+          className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-500"
+        >
+          {chartLabel(t)}
+        </span>
+      ))}
+      {types.length > shown.length && (
+        <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[11px] font-medium text-gray-400">
+          +{types.length - shown.length}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ReportsTable({
+  reports,
+  nameById,
   onOpen,
 }: {
-  report: Report;
-  onOpen: () => void;
+  reports: Report[];
+  nameById: Map<string, string>;
+  onOpen: (id: string) => void;
 }) {
   return (
-    <button
-      onClick={onOpen}
-      className="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-gray-50"
-    >
-      <span
-        className={`h-2 w-2 shrink-0 rounded-full ${
-          report.status === "completed"
-            ? "bg-green-500"
-            : report.status === "running"
-              ? "bg-amber-400"
-              : "bg-red-400"
-        }`}
-      />
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-gray-800">
-          {report.title}
-        </p>
-        <p className="text-xs text-gray-400">
-          {report.cost_usd != null
-            ? formatInr(report.cost_usd)
-            : report.status}
-        </p>
-      </div>
-      <span className="shrink-0 text-gray-300 transition-transform group-hover:translate-x-0.5">
-        →
-      </span>
-    </button>
+    <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
+      <table className="w-full min-w-[720px] text-left text-sm">
+        <thead>
+          <tr className="border-b border-gray-100 text-xs uppercase tracking-wider text-gray-400">
+            <th className="px-4 py-3 font-medium">Report</th>
+            <th className="px-4 py-3 font-medium">Dataset</th>
+            <th className="px-4 py-3 font-medium">Charts</th>
+            <th className="px-4 py-3 text-center font-medium">Sections</th>
+            <th className="px-4 py-3 text-right font-medium">Cost</th>
+            <th className="px-4 py-3 font-medium">Status</th>
+            <th className="px-4 py-3 text-right font-medium">When</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-gray-50">
+          {reports.map((r) => (
+            <tr
+              key={r.id}
+              onClick={() => onOpen(r.id)}
+              className="cursor-pointer transition-colors hover:bg-gray-50/70"
+            >
+              <td className="max-w-[240px] px-4 py-3">
+                <p className="truncate font-medium text-gray-800">{r.title}</p>
+              </td>
+              <td className="max-w-[160px] px-4 py-3">
+                <p className="truncate text-gray-500">
+                  {nameById.get(r.dataset_id) ?? "—"}
+                </p>
+              </td>
+              <td className="px-4 py-3">
+                <ChartBadges types={r.chart_types ?? []} />
+              </td>
+              <td className="px-4 py-3 text-center tabular-nums text-gray-500">
+                {r.section_count || "—"}
+              </td>
+              <td className="px-4 py-3 text-right tabular-nums text-gray-700">
+                {r.cost_usd != null ? formatInr(r.cost_usd) : "—"}
+              </td>
+              <td className="px-4 py-3">
+                <StatusPill status={r.status} />
+              </td>
+              <td className="px-4 py-3 text-right text-xs text-gray-400">
+                {relativeTime(r.created_at)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 
@@ -425,6 +532,23 @@ function compact(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(n >= 10_000 ? 0 : 1)}k`;
   return String(n);
+}
+
+/* "3h ago", "2d ago", or a short date for older items. */
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (Number.isNaN(then)) return "";
+  const mins = Math.round((Date.now() - then) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.round(hrs / 24);
+  if (days < 7) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 /* ---------------------------------- icons --------------------------------- */

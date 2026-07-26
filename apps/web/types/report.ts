@@ -13,6 +13,10 @@ export interface Report {
   input_tokens: number | null;
   output_tokens: number | null;
   cost_usd: number | null;
+  // Lightweight content stats for list/dashboard views.
+  section_count: number;
+  chart_count: number;
+  chart_types: string[];
 }
 
 export interface ReportSection {

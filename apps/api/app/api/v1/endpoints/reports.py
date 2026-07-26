@@ -299,6 +299,21 @@ async def stream_report(
     return EventSourceResponse(event_generator())
 
 
+def _content_stats(content) -> tuple[int, int, list[str]]:
+    """(section_count, chart_count, distinct_chart_types) from a report's content."""
+    if not isinstance(content, list):
+        return 0, 0, []
+    types: list[str] = []
+    for section in content:
+        for chart in (section or {}).get("charts") or []:
+            t = chart.get("type") if isinstance(chart, dict) else None
+            if t:
+                types.append(t)
+    # distinct, first-seen order preserved
+    distinct = list(dict.fromkeys(types))
+    return len(content), len(types), distinct
+
+
 @router.get("", response_model=list[ReportRead])
 async def list_reports(
     dataset_id: uuid.UUID | None = None,
@@ -309,7 +324,20 @@ async def list_reports(
     if dataset_id is not None:
         query = query.where(Report.dataset_id == dataset_id)
     result = await db.scalars(query.order_by(Report.created_at.desc()))
-    return list(result)
+    # Enrich each row with lightweight content stats for the dashboard.
+    out = []
+    for report in result:
+        sections, charts, types = _content_stats(report.content)
+        out.append(
+            ReportRead.model_validate(report).model_copy(
+                update={
+                    "section_count": sections,
+                    "chart_count": charts,
+                    "chart_types": types,
+                }
+            )
+        )
+    return out
 
 
 @router.get("/{report_id}", response_model=ReportDetail)
