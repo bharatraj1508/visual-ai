@@ -3,7 +3,6 @@
 import { createRoot } from "react-dom/client";
 
 import ChartRenderer from "@/components/chart/ChartRenderer";
-import { colorAt } from "@/components/chart/palette";
 import { ChartSpec } from "@/types/chart";
 import { ReportDetail, ReportSection } from "@/types/report";
 
@@ -31,60 +30,13 @@ function stripMd(md: string): string {
     .trim();
 }
 
-function hexToRgb(hex: string): [number, number, number] {
-  const h = hex.replace("#", "");
-  const n = parseInt(
-    h.length === 3
-      ? h
-          .split("")
-          .map((c) => c + c)
-          .join("")
-      : h,
-    16,
-  );
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-}
+type ChartImage = { dataUrl: string; ratio: number };
 
-/** Render a Recharts SVG node to a white-background PNG data URL. Reliable —
- * unlike whole-DOM capture, an SVG serialized to an <img> rasterizes cleanly. */
-async function svgToPng(svg: SVGSVGElement): Promise<string | null> {
-  const rect = svg.getBoundingClientRect();
-  const w = svg.width?.baseVal?.value || rect.width || PRINT_WIDTH;
-  const h = svg.height?.baseVal?.value || rect.height || 320;
-  const clone = svg.cloneNode(true) as SVGSVGElement;
-  clone.setAttribute("width", String(w));
-  clone.setAttribute("height", String(h));
-  clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
-  // Default font so axis/labels aren't a serif fallback in the standalone SVG.
-  clone.style.fontFamily = "Arial, Helvetica, sans-serif";
-  const xml = new XMLSerializer().serializeToString(clone);
-  const url = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(xml);
-
-  const img = new Image();
-  const ok = await new Promise<boolean>((resolve) => {
-    img.onload = () => resolve(true);
-    img.onerror = () => resolve(false);
-    img.src = url;
-  });
-  if (!ok) return null;
-
-  const scale = 2;
-  const canvas = document.createElement("canvas");
-  canvas.width = w * scale;
-  canvas.height = h * scale;
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return null;
-  ctx.scale(scale, scale);
-  ctx.fillStyle = "#ffffff";
-  ctx.fillRect(0, 0, w, h);
-  ctx.drawImage(img, 0, 0, w, h);
-  return canvas.toDataURL("image/png");
-}
-
-/** Render every chart off-screen, wait for Recharts to paint, return the PNGs
- * in order (one per chart spec). */
-async function renderChartPngs(charts: ChartSpec[]): Promise<(string | null)[]> {
+/** Render every chart off-screen, wait for Recharts to paint, then capture each
+ * one (chart + legend) with SnapDOM — a reliable DOM-to-image engine. */
+async function renderChartImages(charts: ChartSpec[]): Promise<ChartImage[]> {
   if (charts.length === 0) return [];
+  const { snapdom } = await import("@zumer/snapdom");
   const host = document.createElement("div");
   host.style.cssText = `position:fixed;top:0;left:-10000px;width:${PRINT_WIDTH}px;background:#fff;`;
   document.body.appendChild(host);
@@ -93,34 +45,47 @@ async function renderChartPngs(charts: ChartSpec[]): Promise<(string | null)[]> 
     root.render(
       <div>
         {charts.map((spec, i) => (
-          <div key={i} style={{ width: PRINT_WIDTH }}>
+          <div key={i} style={{ width: PRINT_WIDTH, background: "#fff" }}>
             <ChartRenderer spec={spec} print />
           </div>
         ))}
       </div>,
     );
-    // Poll until Recharts has committed all surfaces (or time out).
+    // Wait until Recharts has committed a surface for every chart.
     for (let i = 0; i < 40; i++) {
       await delay(50);
       if (host.querySelectorAll("svg.recharts-surface").length >= charts.length)
         break;
     }
-    await delay(100);
-    const svgs = Array.from(
-      host.querySelectorAll<SVGSVGElement>("svg.recharts-surface"),
-    );
-    return Promise.all(svgs.map((s) => svgToPng(s)));
+    await delay(120);
+
+    const figures = Array.from(host.querySelectorAll<HTMLElement>("figure"));
+    const images: ChartImage[] = [];
+    for (const fig of figures) {
+      // eslint-disable-next-line no-await-in-loop
+      const img = await snapdom.toPng(fig, {
+        scale: 2,
+        backgroundColor: "#ffffff",
+        embedFonts: true,
+      });
+      const w = img.naturalWidth || 1;
+      const h = img.naturalHeight || 1;
+      images.push({ dataUrl: img.src, ratio: h / w });
+    }
+    return images;
   } finally {
     root.unmount();
     host.remove();
   }
 }
 
-/** Build a clean, text-based PDF with embedded chart images. */
+/** Build a clean PDF: crisp vector text (jsPDF) with SnapDOM-captured charts. */
 export async function reportToPdfBlob(report: ReportDetail): Promise<Blob> {
   const { jsPDF } = await import("jspdf");
   const sections: ReportSection[] = report.content ?? [];
-  const chartPngs = await renderChartPngs(sections.flatMap((s) => s.charts ?? []));
+  const chartImages = await renderChartImages(
+    sections.flatMap((s) => s.charts ?? []),
+  );
 
   const pdf = new jsPDF({ unit: "pt", format: "a4" });
   const pageW = pdf.internal.pageSize.getWidth();
@@ -140,15 +105,14 @@ export async function reportToPdfBlob(report: ReportDetail): Promise<Blob> {
     size: number,
     style: "normal" | "bold",
     rgb: [number, number, number],
-    gap = 1.42,
   ) => {
     pdf.setFont("helvetica", style);
     pdf.setFontSize(size);
     pdf.setTextColor(...rgb);
     for (const line of pdf.splitTextToSize(text, maxW)) {
-      ensure(size * gap);
+      ensure(size * 1.42);
       pdf.text(line, margin, y);
-      y += size * gap;
+      y += size * 1.42;
     }
   };
 
@@ -172,36 +136,14 @@ export async function reportToPdfBlob(report: ReportDetail): Promise<Blob> {
       writeText(stripMd(section.narrative), 10.5, "normal", [55, 65, 81]);
       y += 6;
     }
-    for (const spec of section.charts ?? []) {
-      const png = chartPngs[ci++];
-      if (!png) continue;
-      const img = new Image();
-      img.src = png;
-      // eslint-disable-next-line no-await-in-loop
-      await img.decode().catch(() => undefined);
+    for (const _ of section.charts ?? []) {
+      const image = chartImages[ci++];
+      if (!image) continue;
       const w = maxW;
-      const h = img.width ? (img.height / img.width) * w : 240;
-      ensure(h + 10);
-      pdf.addImage(png, "PNG", margin, y, w, h);
-      y += h + 6;
-      // Text legend for multi-series charts (Recharts' HTML legend isn't in the SVG).
-      const names = (spec.series ?? []).map((s) => s.name).filter(Boolean);
-      if (names.length > 1) {
-        ensure(14);
-        let x = margin;
-        names.forEach((name, i) => {
-          const [r, g, b] = hexToRgb(colorAt(i));
-          pdf.setFillColor(r, g, b);
-          pdf.rect(x, y - 7, 8, 8, "F");
-          pdf.setFont("helvetica", "normal");
-          pdf.setFontSize(9);
-          pdf.setTextColor(75, 85, 99);
-          pdf.text(name, x + 11, y);
-          x += 11 + pdf.getTextWidth(name) + 14;
-        });
-        y += 12;
-      }
-      y += 10;
+      const h = image.ratio * w;
+      ensure(h + 12);
+      pdf.addImage(image.dataUrl, "PNG", margin, y, w, h);
+      y += h + 16;
     }
     y += 8;
   }

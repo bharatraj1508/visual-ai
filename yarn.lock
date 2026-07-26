@@ -695,6 +695,11 @@
   resolved "https://registry.yarnpkg.com/@unrs/resolver-binding-win32-x64-msvc/-/resolver-binding-win32-x64-msvc-1.12.2.tgz#72da0da48d72b1e87831b9c0308931d3f4669027"
   integrity sha512-nAB74NfSNKknqQ1RrYj6uz8FcXEomu/MATJZxh/x+BArzN2U3JbOYC0APYzUIGhVY3m5hRxA8VPNdPBoG8txlA==
 
+"@zumer/snapdom@^2.22.0":
+  version "2.22.0"
+  resolved "https://registry.yarnpkg.com/@zumer/snapdom/-/snapdom-2.22.0.tgz#4593a029184c4d0f7ceadfd58960a10b8bcc42b5"
+  integrity sha512-XfOa0pqiRj9+zsrHm5+hLmKMmMuFxIhrmrSrJKMkSf9DFGnDsql89bd4IMFnLMWl1WmW0X5YOjtSZi8jvYkbVw==
+
 acorn-jsx@^5.3.2:
   version "5.3.2"
   resolved "https://registry.yarnpkg.com/acorn-jsx/-/acorn-jsx-5.3.2.tgz#7ed5bb55908b3b2f1bc55c6af1653bada7f07937"
