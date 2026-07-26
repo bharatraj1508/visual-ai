@@ -10,7 +10,7 @@ assembled content is persisted as `completed` before the final `report_done`.
 import json
 import uuid
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
@@ -18,8 +18,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from app.agent.context import DatasetContext
 from app.agent.cost import UsageTracker
-from app.agent.graph import build_agent
-from app.agent.report import default_planner, generate_report_events
+from app.agent.report import generate_report_events
 from app.agent.streaming import friendly_error_detail
 from app.core.database import get_db
 from app.core.logging import logger
@@ -125,9 +124,70 @@ async def create_report(
     return report
 
 
+@router.post(
+    "/{report_id}/regenerate",
+    response_model=ReportRead,
+    status_code=status.HTTP_201_CREATED,
+)
+async def regenerate_report(
+    report_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Create a NEW report version for the same problem statement (goal + dataset)
+    without touching the existing one. The client streams it with `fresh=true` so
+    the result cache is bypassed and a genuinely new run is produced."""
+    source = await _get_owned_report(report_id, user, db)
+    dataset = await db.scalar(
+        select(Dataset).where(
+            Dataset.id == source.dataset_id, Dataset.user_id == user.id
+        )
+    )
+    if dataset is None or dataset.status != DatasetStatus.ready:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Dataset is not available"
+        )
+    new = Report(
+        user_id=user.id,
+        dataset_id=source.dataset_id,
+        title=source.title,
+        goal=source.goal,
+        status=ReportStatus.running,
+    )
+    db.add(new)
+    await db.commit()
+    await db.refresh(new)
+    return new
+
+
+@router.get("/{report_id}/versions", response_model=list[ReportDetail])
+async def report_versions(
+    report_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """All report versions for this one's problem statement (same dataset + goal),
+    oldest first — the original at the top, regenerations appended below."""
+    report = await _get_owned_report(report_id, user, db)
+    result = await db.scalars(
+        select(Report)
+        .where(
+            Report.user_id == user.id,
+            Report.dataset_id == report.dataset_id,
+            Report.goal == report.goal,
+        )
+        .order_by(Report.created_at.asc())
+    )
+    return list(result)
+
+
 @router.get("/{report_id}/stream")
 async def stream_report(
     report_id: uuid.UUID,
+    fresh: bool = Query(
+        False, description="Skip the result cache and force a new generation."
+    ),
+    variant: int = Query(0, description="Regeneration index; nudges a fresh angle."),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -150,6 +210,38 @@ async def stream_report(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
 
+    # Result cache: an identical goal on the same dataset produces an identical
+    # report. Reuse a prior completed run's content instead of paying to
+    # regenerate it — the biggest single saving on repeats. Skipped for explicit
+    # regenerations (`fresh`), which must produce a new version.
+    cached = None if fresh else await db.scalar(
+        select(Report)
+        .where(
+            Report.user_id == user.id,
+            Report.dataset_id == report.dataset_id,
+            Report.goal == report.goal,
+            Report.status == ReportStatus.completed,
+            Report.content.isnot(None),
+            Report.id != report.id,
+        )
+        .order_by(Report.created_at.desc())
+    )
+    if cached is not None:
+        report.content = cached.content
+        report.status = ReportStatus.completed
+        report.input_tokens = 0
+        report.output_tokens = 0
+        report.cost_usd = 0.0  # reused — no new inference spend
+        report.error = None
+        await db.commit()
+
+        async def replay_cached():
+            yield {"event": "report_done",
+                   "data": json.dumps({"report_id": str(report.id), "cost_usd": 0.0,
+                                       "input_tokens": 0, "output_tokens": 0,
+                                       "cached": True})}
+        return EventSourceResponse(replay_cached())
+
     # A failed report can be retried simply by re-opening the stream.
     if report.status == ReportStatus.failed:
         report.status = ReportStatus.running
@@ -164,9 +256,7 @@ async def stream_report(
         usage = UsageTracker()
         try:
             async for ev in generate_report_events(
-                ctx, report.goal,
-                planner=default_planner, agent_factory=build_agent,
-                usage=usage,
+                ctx, report.goal, usage=usage, variant=variant,
             ):
                 etype = ev["event"]
                 if etype == "section_start":

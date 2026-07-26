@@ -45,17 +45,25 @@ export function useReportStream() {
     async (
       reportId: string,
       onEvent: (event: ReportStreamEvent) => void,
+      options?: { fresh?: boolean; variant?: number },
     ) => {
       setStreaming(true);
       const token = store.getState().auth.accessToken;
       const controller = new AbortController();
       const timeout = setTimeout(() => controller.abort(), 300_000);
       try {
-        const response = await fetch(`${baseApiURL}/reports/${reportId}/stream`, {
-          method: "GET",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          signal: controller.signal,
-        });
+        const params = new URLSearchParams();
+        if (options?.fresh) params.set("fresh", "true");
+        if (options?.variant) params.set("variant", String(options.variant));
+        const query = params.toString();
+        const response = await fetch(
+          `${baseApiURL}/reports/${reportId}/stream${query ? `?${query}` : ""}`,
+          {
+            method: "GET",
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            signal: controller.signal,
+          },
+        );
         if (!response.ok) {
           let detail = `Request failed (${response.status})`;
           try {
