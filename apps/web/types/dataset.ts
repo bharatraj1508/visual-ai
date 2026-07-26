@@ -14,6 +14,7 @@ export interface Dataset {
   col_count: number | null;
   error: string | null;
   created_at: string;
+  archived: boolean;
   preprocessed: boolean;
   // At upload: what cleaning WOULD do (drives the recommendation card).
   // After preprocessing: what was applied. null when the data is already clean.

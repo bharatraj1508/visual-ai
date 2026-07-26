@@ -31,6 +31,7 @@ import { ChartSeries, ChartSpec } from "@/types/chart";
 import { colorAt } from "./palette";
 
 const HEIGHT = 320;
+const PRINT_WIDTH = 680; // fixed width for off-screen PDF capture
 const GRID = "#EEF0F3";
 const AXIS = "#9CA3AF";
 
@@ -50,8 +51,15 @@ const tooltipStyle = {
   cursor: { fill: "rgba(0,0,0,0.03)" },
 } as const;
 
-/** Renders a neutral ChartSpec as an interactive Recharts chart. */
-export default function ChartRenderer({ spec }: { spec: ChartSpec }) {
+/** Renders a neutral ChartSpec as an interactive Recharts chart.
+ * `print` mode renders at a fixed size with animation off, for clean PDF capture. */
+export default function ChartRenderer({
+  spec,
+  print = false,
+}: {
+  spec: ChartSpec;
+  print?: boolean;
+}) {
   // Clicking a legend entry toggles that series off — a quick way to isolate.
   const [hidden, setHidden] = useState<Set<string>>(new Set());
   const toggle = (key: string) =>
@@ -69,6 +77,7 @@ export default function ChartRenderer({ spec }: { spec: ChartSpec }) {
     );
   }
 
+  const animate = !print;
   return (
     <figure className="rounded-xl border border-gray-200 bg-white p-4">
       {spec.title && (
@@ -76,8 +85,8 @@ export default function ChartRenderer({ spec }: { spec: ChartSpec }) {
           {spec.title}
         </figcaption>
       )}
-      <ResponsiveContainer width="100%" height={HEIGHT}>
-        {renderBody(spec, hidden, toggle)}
+      <ResponsiveContainer width={print ? PRINT_WIDTH : "100%"} height={HEIGHT}>
+        {renderBody(spec, hidden, toggle, animate)}
       </ResponsiveContainer>
     </figure>
   );
@@ -96,16 +105,17 @@ function renderBody(
   spec: ChartSpec,
   hidden: Set<string>,
   toggle: (key: string) => void,
+  animate: boolean,
 ) {
   switch (spec.render) {
     case "pie":
-      return renderPie(spec);
+      return renderPie(spec, animate);
     case "scatter":
-      return renderScatter(spec, hidden, toggle);
+      return renderScatter(spec, hidden, toggle, animate);
     case "radar":
-      return renderRadar(spec, hidden, toggle);
+      return renderRadar(spec, hidden, toggle, animate);
     default:
-      return renderCartesian(spec, hidden, toggle);
+      return renderCartesian(spec, hidden, toggle, animate);
   }
 }
 
@@ -113,6 +123,7 @@ function renderCartesian(
   spec: ChartSpec,
   hidden: Set<string>,
   toggle: (key: string) => void,
+  animate: boolean,
 ) {
   const hasRight = spec.series.some((s) => s.yAxis === "right");
   return (
@@ -130,16 +141,28 @@ function renderCartesian(
       )}
       <Tooltip {...tooltipStyle} />
       {legend(toggle)}
-      {spec.series.map((s, i) => seriesMark(s, i, hidden))}
+      {spec.series.map((s, i) => seriesMark(s, i, hidden, animate))}
     </ComposedChart>
   );
 }
 
-function seriesMark(s: ChartSeries, index: number, hidden: Set<string>) {
+function seriesMark(
+  s: ChartSeries,
+  index: number,
+  hidden: Set<string>,
+  animate: boolean,
+) {
   const color = colorAt(index);
   const axisId = s.yAxis === "right" ? "right" : "left";
   const hide = hidden.has(s.key);
-  const common = { key: s.key, dataKey: s.key, name: s.name, yAxisId: axisId, hide };
+  const common = {
+    key: s.key,
+    dataKey: s.key,
+    name: s.name,
+    yAxisId: axisId,
+    hide,
+    isAnimationActive: animate,
+  };
 
   if (s.chartType === "line") {
     return (
@@ -177,7 +200,7 @@ function seriesMark(s: ChartSeries, index: number, hidden: Set<string>) {
   );
 }
 
-function renderPie(spec: ChartSpec) {
+function renderPie(spec: ChartSpec, animate: boolean) {
   const valueKey = spec.series[0]?.key ?? spec.yKey ?? "value";
   const isDonut = spec.type === "donut";
   return (
@@ -195,6 +218,7 @@ function renderPie(spec: ChartSpec) {
         paddingAngle={isDonut ? 2 : 0}
         stroke="#fff"
         strokeWidth={2}
+        isAnimationActive={animate}
       >
         {spec.data.map((_, i) => (
           <Cell key={i} fill={colorAt(i)} />
@@ -208,6 +232,7 @@ function renderScatter(
   spec: ChartSpec,
   hidden: Set<string>,
   toggle: (key: string) => void,
+  animate: boolean,
 ) {
   const yKey = spec.yKey ?? "y";
   // Split into one <Scatter> per distinct series value when a split field is set.
@@ -244,6 +269,7 @@ function renderScatter(
             }
             fill={colorAt(i)}
             hide={hidden.has(key)}
+            isAnimationActive={animate}
           />
         );
       })}
@@ -255,6 +281,7 @@ function renderRadar(
   spec: ChartSpec,
   hidden: Set<string>,
   toggle: (key: string) => void,
+  animate: boolean,
 ) {
   return (
     <RadarChart data={spec.data} outerRadius="72%">
@@ -272,6 +299,7 @@ function renderRadar(
           fill={colorAt(i)}
           fillOpacity={0.22}
           hide={hidden.has(s.key)}
+          isAnimationActive={animate}
         />
       ))}
     </RadarChart>

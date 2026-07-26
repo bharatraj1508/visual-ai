@@ -4,17 +4,20 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useParams } from "next/navigation";
+import { toast } from "react-toastify";
 
 import AppHeader from "@/components/AppHeader";
 import Breadcrumb from "@/components/Breadcrumb";
 import ChartRenderer from "@/components/chart/ChartRenderer";
 import MarkdownMessage from "@/components/chat/MarkdownMessage";
 import ThinkingIndicator from "@/components/chat/ThinkingIndicator";
+import Spinner from "@/components/common/Spinner";
 import EditableTitle from "@/components/EditableTitle";
 import { useReportStream } from "@/hooks/report/useReportStream";
 import { useRequireAuth } from "@/hooks/auth/useRequireAuth";
 import { useDataset } from "@/services/api/requests/datasets";
 import {
+  useArchiveReport,
   useRegenerateReport,
   useRenameReport,
   useReport,
@@ -24,6 +27,7 @@ import { ReportQueryKey } from "@/services/api/types/ReportQueryKey";
 import { ChartSpec } from "@/types/chart";
 import { ReportDetail, ReportSection } from "@/types/report";
 import { formatInr, formatUsd } from "@/utils/currency";
+import { downloadReportPdf, downloadReportsZip } from "@/utils/reportPdf";
 
 type LiveSection = { title: string; narrative: string; charts: ChartSpec[] };
 
@@ -37,7 +41,11 @@ export default function ReportPage() {
   const { data: dataset } = useDataset(report?.dataset_id ?? "");
   const renameReport = useRenameReport(reportId);
   const regenerate = useRegenerateReport();
+  const archiveReport = useArchiveReport();
   const { start, streaming } = useReportStream();
+
+  // PDF download state (null = idle, "all" = zipping, else a version id).
+  const [downloading, setDownloading] = useState<string | null>(null);
 
   // Live-streaming state for the ONE version currently generating.
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -163,6 +171,48 @@ export default function ReportPage() {
     });
   }, []);
 
+  const onDownload = useCallback(async (version: ReportDetail) => {
+    setDownloading(version.id);
+    try {
+      await downloadReportPdf(version);
+    } catch {
+      toast.error("Could not generate the PDF.");
+    } finally {
+      setDownloading(null);
+    }
+  }, []);
+
+  const onDownloadAll = useCallback(async () => {
+    setDownloading("all");
+    try {
+      await downloadReportsZip(ordered, report?.title ?? "report");
+    } catch {
+      toast.error("Could not generate the ZIP.");
+    } finally {
+      setDownloading(null);
+    }
+  }, [ordered, report?.title]);
+
+  const onArchive = useCallback(
+    (version: ReportDetail, index: number) => {
+      archiveReport.mutate(
+        { id: version.id, archived: true },
+        {
+          onSuccess: () => {
+            toast.success(
+              `${index === 0 ? "Original" : `Regeneration ${index}`} archived`,
+            );
+            queryClient.invalidateQueries({
+              queryKey: [ReportQueryKey.Versions, reportId],
+            });
+          },
+          onError: () => toast.error("Could not archive the report."),
+        },
+      );
+    },
+    [archiveReport, queryClient, reportId],
+  );
+
   if (!token) return null;
 
   return (
@@ -198,6 +248,18 @@ export default function ReportPage() {
               {report.goal}
             </p>
           )}
+          {collapsible && (
+            <div className="mt-4">
+              <button
+                onClick={onDownloadAll}
+                disabled={downloading !== null}
+                className="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-50"
+              >
+                {downloading === "all" ? <Spinner /> : <ZipIcon />}
+                Download all ({ordered.length}) as ZIP
+              </button>
+            </div>
+          )}
         </header>
 
         <div className="space-y-6">
@@ -229,6 +291,10 @@ export default function ReportPage() {
                 onRegenerate={onRegenerate}
                 regenerating={regenerate.isPending}
                 anyStreaming={streaming}
+                onDownload={() => onDownload(version)}
+                onArchive={() => onArchive(version, i)}
+                downloading={downloading === version.id}
+                canArchive={collapsible}
               />
             );
           })}
@@ -252,6 +318,10 @@ function VersionPanel({
   onRegenerate,
   regenerating,
   anyStreaming,
+  onDownload,
+  onArchive,
+  downloading,
+  canArchive,
 }: {
   version: ReportDetail;
   index: number;
@@ -266,10 +336,15 @@ function VersionPanel({
   onRegenerate: () => void;
   regenerating: boolean;
   anyStreaming: boolean;
+  onDownload: () => void;
+  onArchive: () => void;
+  downloading: boolean;
+  canArchive: boolean;
 }) {
   const label = index === 0 ? "Original" : `Regeneration ${index}`;
   const failed = version.status === "failed" || !!streamError;
   const showRetry = !streamingThis && failed;
+  const done = version.status === "completed";
 
   const header = (
     <div className="flex items-center justify-between gap-3 px-4 py-3">
@@ -317,6 +392,29 @@ function VersionPanel({
             inputTokens={version.input_tokens}
             outputTokens={version.output_tokens}
           />
+        )}
+        {done && (
+          <button
+            type="button"
+            onClick={onDownload}
+            disabled={downloading}
+            title="Download this report as PDF"
+            aria-label="Download this report as PDF"
+            className="rounded-md border border-gray-200 p-1.5 text-gray-500 transition-colors hover:border-primary/40 hover:text-primary disabled:opacity-50"
+          >
+            {downloading ? <Spinner /> : <DownloadIcon />}
+          </button>
+        )}
+        {canArchive && done && (
+          <button
+            type="button"
+            onClick={onArchive}
+            title="Archive this version"
+            aria-label="Archive this version"
+            className="rounded-md border border-gray-200 p-1.5 text-gray-400 transition-colors hover:border-amber-300 hover:text-amber-600"
+          >
+            <ArchiveIcon />
+          </button>
         )}
         <button
           type="button"
@@ -439,3 +537,30 @@ function appendToLast(
   next[next.length - 1] = update(next[next.length - 1]);
   return next;
 }
+
+const iconSvg = {
+  width: 15,
+  height: 15,
+  viewBox: "0 0 24 24",
+  fill: "none",
+  stroke: "currentColor",
+  strokeWidth: 2,
+  strokeLinecap: "round" as const,
+  strokeLinejoin: "round" as const,
+};
+const DownloadIcon = () => (
+  <svg {...iconSvg}>
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
+  </svg>
+);
+const ZipIcon = () => (
+  <svg {...iconSvg} width={16} height={16}>
+    <path d="M21 8v13H3V3h10M14 3v5h7M14 3l7 5M9 13h2M9 17h2" />
+  </svg>
+);
+const ArchiveIcon = () => (
+  <svg {...iconSvg}>
+    <rect x="3" y="4" width="18" height="4" rx="1" />
+    <path d="M5 8v11a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8M10 12h4" />
+  </svg>
+);

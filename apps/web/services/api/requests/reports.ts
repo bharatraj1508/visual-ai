@@ -8,13 +8,13 @@ import { ReportQueryKey } from "../types/ReportQueryKey";
 const baseURL = `${baseApiURL}/reports`;
 
 /** All of the user's reports, optionally scoped to one dataset. */
-export function useReports(datasetId?: string) {
+export function useReports(datasetId?: string, archived = false) {
   return useQuery({
-    queryKey: [ReportQueryKey.Reports, datasetId ?? "all"],
+    queryKey: [ReportQueryKey.Reports, datasetId ?? "all", archived],
     async queryFn() {
       const { data } = await api.get<Report[]>("", {
         baseURL,
-        params: datasetId ? { dataset_id: datasetId } : undefined,
+        params: { archived, ...(datasetId ? { dataset_id: datasetId } : {}) },
       });
       return data;
     },
@@ -63,6 +63,31 @@ export function useReportVersions(id: string) {
       )
         ? 4000
         : false,
+  });
+}
+
+/** Fetch all versions of a problem statement imperatively (with content), for
+ * PDF/zip downloads from anywhere. */
+export async function fetchReportVersions(id: string): Promise<ReportDetail[]> {
+  const { data } = await api.get<ReportDetail[]>(`/${id}/versions`, { baseURL });
+  return data;
+}
+
+/** Archive (soft-delete) or restore a single report version. */
+export function useArchiveReport() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    async mutationFn({ id, archived }: { id: string; archived: boolean }) {
+      const action = archived ? "archive" : "unarchive";
+      const { data } = await api.post<Report>(`/${id}/${action}`, undefined, {
+        baseURL,
+      });
+      return data;
+    },
+    onSuccess() {
+      queryClient.invalidateQueries({ queryKey: [ReportQueryKey.Reports] });
+      queryClient.invalidateQueries({ queryKey: [ReportQueryKey.Versions] });
+    },
   });
 }
 

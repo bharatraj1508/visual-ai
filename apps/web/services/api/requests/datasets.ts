@@ -7,11 +7,14 @@ import { DatasetQueryKey } from "../types/DatasetQueryKey";
 
 const baseURL = `${baseApiURL}/datasets`;
 
-export function useDatasets() {
+export function useDatasets(archived = false) {
   return useQuery({
-    queryKey: [DatasetQueryKey.Datasets],
+    queryKey: [DatasetQueryKey.Datasets, "list", archived],
     async queryFn() {
-      const { data } = await api.get<Dataset[]>("", { baseURL });
+      const { data } = await api.get<Dataset[]>("", {
+        baseURL,
+        params: { archived },
+      });
       return data;
     },
   });
@@ -97,11 +100,17 @@ export function usePreprocessDataset(id: string) {
   });
 }
 
-export function useDeleteDataset() {
+/** Archive (soft-delete) or restore a dataset — never a hard delete, so it can
+ * always be brought back. */
+export function useArchiveDataset() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn(id: string) {
-      return api.delete(`/${id}`, { baseURL });
+    async mutationFn({ id, archived }: { id: string; archived: boolean }) {
+      const action = archived ? "archive" : "unarchive";
+      const { data } = await api.post<Dataset>(`/${id}/${action}`, undefined, {
+        baseURL,
+      });
+      return data;
     },
     onSuccess() {
       queryClient.invalidateQueries({ queryKey: [DatasetQueryKey.Datasets] });
