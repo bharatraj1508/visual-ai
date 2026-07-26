@@ -30,6 +30,10 @@ class ReportRead(BaseModel):
     status: ReportStatus
     error: str | None
     created_at: datetime
+    # Token usage + priced cost. Null for reports made before cost tracking.
+    input_tokens: int | None = None
+    output_tokens: int | None = None
+    cost_usd: float | None = None
 
 
 class ReportDetail(ReportRead):

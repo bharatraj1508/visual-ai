@@ -17,6 +17,7 @@ from sqlalchemy.orm import selectinload
 from sse_starlette.sse import EventSourceResponse
 
 from app.agent.context import DatasetContext
+from app.agent.cost import UsageTracker
 from app.agent.graph import build_agent
 from app.agent.report import default_planner, generate_report_events
 from app.agent.streaming import friendly_error_detail
@@ -160,10 +161,12 @@ async def stream_report(
     async def event_generator():
         sections: list[dict] = []
         current: dict | None = None
+        usage = UsageTracker()
         try:
             async for ev in generate_report_events(
                 ctx, report.goal,
                 planner=default_planner, agent_factory=build_agent,
+                usage=usage,
             ):
                 etype = ev["event"]
                 if etype == "section_start":
@@ -183,9 +186,17 @@ async def stream_report(
 
             report.content = sections
             report.status = ReportStatus.completed
+            report.input_tokens = usage.input_tokens
+            report.output_tokens = usage.output_tokens
+            report.cost_usd = usage.cost_usd
             await db.commit()
             yield {"event": "report_done",
-                   "data": json.dumps({"report_id": str(report.id)})}
+                   "data": json.dumps({
+                       "report_id": str(report.id),
+                       "cost_usd": usage.cost_usd,
+                       "input_tokens": usage.input_tokens,
+                       "output_tokens": usage.output_tokens,
+                   })}
         except Exception as exc:  # noqa: BLE001 — record failure, tell the client
             logger.exception("Report generation failed for %s", report.id)
             detail = friendly_error_detail(exc)

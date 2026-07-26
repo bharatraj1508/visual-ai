@@ -15,6 +15,7 @@ from typing import AsyncIterator
 
 from langgraph.errors import GraphRecursionError
 
+from app.agent.cost import UsageTracker, usage_from_message
 from app.core.config import settings
 from app.core.logging import logger
 
@@ -57,12 +58,13 @@ def _chunk_text(chunk) -> str:
 
 
 async def stream_agent_events(
-    agent, messages: list, collector: list[dict]
+    agent, messages: list, collector: list[dict], usage: UsageTracker | None = None
 ) -> AsyncIterator[dict]:
     """Yield SSE dicts ({"event", "data"}) for one agent run.
 
     New entries in `collector` (charts) are flushed as `chart` events right
-    after the tool that produced them completes.
+    after the tool that produced them completes. If a `usage` tracker is
+    passed, token counts from each model call are accumulated into it.
     """
     flushed = 0
     try:
@@ -76,6 +78,10 @@ async def stream_agent_events(
                 text = _chunk_text(event["data"]["chunk"])
                 if text:
                     yield {"event": "token", "data": text}
+            elif kind == "on_chat_model_end" and usage is not None:
+                output = event.get("data", {}).get("output")
+                if output is not None:
+                    usage.add(*usage_from_message(output))
             elif kind == "on_tool_start":
                 yield {
                     "event": "tool_start",

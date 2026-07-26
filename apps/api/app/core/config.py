@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     # Retries (with exponential backoff) for transient LLM errors — 503 model
     # overload, 429 rate limits, 500s. Set to 0 to fail fast.
     LLM_MAX_RETRIES: int = 3
+    # Token pricing (USD per 1M tokens) for the active model, used to cost each
+    # report. Defaults match gemini-3.5-flash-lite; override if the model changes.
+    GEMINI_INPUT_PRICE_PER_1M: float = 0.30
+    GEMINI_OUTPUT_PRICE_PER_1M: float = 2.50
 
     # Security / Auth (JWT). SECRET_KEY MUST be overridden in production via .env.
     SECRET_KEY: str = "dev-secret-change-me-in-production"

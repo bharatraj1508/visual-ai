@@ -18,6 +18,7 @@ import { useRenameReport, useReport } from "@/services/api/requests/reports";
 import { ReportQueryKey } from "@/services/api/types/ReportQueryKey";
 import { ChartSpec } from "@/types/chart";
 import { ReportSection } from "@/types/report";
+import { formatInr, formatUsd } from "@/utils/currency";
 
 const TOOL_LABELS: Record<string, string> = {
   query_data: "Querying the data",
@@ -125,6 +126,13 @@ export default function ReportPage() {
         />
 
         <header className="mb-8 border-b border-gray-200 pb-6">
+          {report?.status === "completed" && report.cost_usd != null && (
+            <CostBadge
+              cost={report.cost_usd}
+              inputTokens={report.input_tokens}
+              outputTokens={report.output_tokens}
+            />
+          )}
           {report ? (
             <EditableTitle
               as="h1"
@@ -172,17 +180,11 @@ export default function ReportPage() {
               <h2 className="mb-4 text-xl font-semibold tracking-tight text-gray-900">
                 {section.title}
               </h2>
-              {/* While streaming, render the narrative as plain text — partial
-                  Markdown (a lone "#" or "**") would flash as giant headings.
-                  The finished report renders as Markdown for the clean look. */}
-              {section.narrative &&
-                (completed ? (
-                  <MarkdownMessage content={section.narrative} />
-                ) : (
-                  <p className="whitespace-pre-wrap text-[15px] leading-relaxed text-gray-600">
-                    {section.narrative}
-                  </p>
-                ))}
+              {/* Render Markdown as it streams so headings/bold/lists show
+                  formatted, not as raw "##"/"**" syntax. */}
+              {section.narrative && (
+                <MarkdownMessage content={section.narrative} />
+              )}
               {section.charts.length > 0 && (
                 <div className="mt-5 space-y-5">
                   {section.charts.map((spec, ci) => (
@@ -194,6 +196,40 @@ export default function ReportPage() {
           ))}
         </div>
       </main>
+    </div>
+  );
+}
+
+function formatTokens(n: number) {
+  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
+}
+
+function CostBadge({
+  cost,
+  inputTokens,
+  outputTokens,
+}: {
+  cost: number;
+  inputTokens: number | null;
+  outputTokens: number | null;
+}) {
+  const total = (inputTokens ?? 0) + (outputTokens ?? 0);
+  const detail =
+    inputTokens != null && outputTokens != null
+      ? `${formatTokens(inputTokens)} in · ${formatTokens(outputTokens)} out`
+      : `${formatTokens(total)} tokens`;
+  return (
+    <div
+      className="mb-3 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5"
+      title={`${inputTokens ?? 0} input + ${outputTokens ?? 0} output tokens`}
+    >
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FB676E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <circle cx="12" cy="12" r="9" />
+        <path d="M14.5 9.5A2.5 2.5 0 0 0 12 8c-1.5 0-2.5.8-2.5 2s1 1.6 2.5 2 2.5.9 2.5 2-1 2-2.5 2a2.5 2.5 0 0 1-2.5-1.5M12 6.5v11" />
+      </svg>
+      <span className="text-sm font-semibold text-ink">{formatInr(cost)}</span>
+      <span className="text-sm text-gray-400">({formatUsd(cost)})</span>
+      <span className="font-mono text-[11px] text-gray-400">to generate · {detail}</span>
     </div>
   );
 }

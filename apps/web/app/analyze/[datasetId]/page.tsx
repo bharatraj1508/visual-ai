@@ -21,6 +21,7 @@ import {
 import { SuggestionQueryKey } from "@/services/api/types/SuggestionQueryKey";
 import { Report } from "@/types/report";
 import { ReportSuggestion } from "@/types/suggestion";
+import { formatCostDual } from "@/utils/currency";
 
 const CHART_LABELS: Record<string, string> = {
   bar: "Bar",
@@ -215,7 +216,14 @@ function GeneratedReportCard({
             <rect x="17" y="13" width="3" height="4" />
           </svg>
         </span>
-        <StatusPill status={report.status} />
+        <div className="flex items-center gap-2">
+          {report.cost_usd != null && (
+            <span className="font-mono text-[11px] text-gray-400" title="Cost to generate">
+              {formatCostDual(report.cost_usd)}
+            </span>
+          )}
+          <StatusPill status={report.status} />
+        </div>
       </div>
 
       <h3 className="text-base font-semibold leading-snug text-gray-900">

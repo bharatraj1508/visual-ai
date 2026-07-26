@@ -10,6 +10,9 @@ export interface Report {
   status: ReportStatus;
   error: string | null;
   created_at: string;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
 }
 
 export interface ReportSection {
@@ -33,5 +36,13 @@ export type ReportStreamEvent =
       data: { id: string; title: string | null; spec: ChartSpec };
     }
   | { type: "section_end"; data: { index: number } }
-  | { type: "report_done"; data: { report_id: string } }
+  | {
+      type: "report_done";
+      data: {
+        report_id: string;
+        cost_usd?: number;
+        input_tokens?: number;
+        output_tokens?: number;
+      };
+    }
   | { type: "error"; data: { detail: string } };
