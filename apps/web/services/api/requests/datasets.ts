@@ -74,6 +74,29 @@ export function useRenameDataset(id: string) {
   });
 }
 
+/** Applies safe data-cleaning to the dataset in place; reports generated
+ * afterwards use the cleaned data. Returns the re-profiled dataset. */
+export function usePreprocessDataset(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    async mutationFn() {
+      const { data } = await api.post<DatasetProfile>(
+        `/${id}/preprocess`,
+        undefined,
+        { baseURL },
+      );
+      return data;
+    },
+    onSuccess(data) {
+      queryClient.setQueryData([DatasetQueryKey.Datasets, id], data);
+      queryClient.invalidateQueries({ queryKey: [DatasetQueryKey.Datasets] });
+      queryClient.invalidateQueries({
+        queryKey: [DatasetQueryKey.DatasetProfile, id],
+      });
+    },
+  });
+}
+
 export function useDeleteDataset() {
   const queryClient = useQueryClient();
   return useMutation({

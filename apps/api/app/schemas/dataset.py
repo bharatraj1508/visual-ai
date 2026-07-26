@@ -24,6 +24,12 @@ class DatasetColumnRead(BaseModel):
     sample_values: list
 
 
+class PreprocessChange(BaseModel):
+    code: str
+    title: str
+    detail: str
+
+
 class DatasetRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -34,6 +40,10 @@ class DatasetRead(BaseModel):
     col_count: int | None
     error: str | None
     created_at: datetime
+    preprocessed: bool = False
+    # At ingest: what cleaning WOULD do (drives the recommendation card).
+    # After preprocessing: what was applied.
+    preprocessing_summary: list[PreprocessChange] | None = None
 
 
 class DatasetProfile(DatasetRead):

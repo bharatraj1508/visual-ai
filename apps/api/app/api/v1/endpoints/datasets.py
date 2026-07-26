@@ -11,7 +11,7 @@ from fastapi import (
     UploadFile,
     status,
 )
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -23,7 +23,7 @@ from app.models.dataset import Dataset, DatasetStatus
 from app.models.dataset_column import DatasetColumn
 from app.models.user import User
 from app.schemas.dataset import DatasetProfile, DatasetRead, DatasetUpdate
-from app.services import ingestion, storage
+from app.services import ingestion, preprocessing, storage
 
 router = APIRouter()
 
@@ -117,6 +117,14 @@ async def upload_dataset(
     db.add_all(
         [DatasetColumn(dataset_id=dataset.id, **p) for p in profiles]
     )
+    # Preview what data-cleaning would fix, so the analyze panel can recommend it.
+    # A failed audit must never block a successful upload.
+    try:
+        dataset.preprocessing_summary = (
+            await asyncio.to_thread(preprocessing.audit, str(parquet_out))
+        ) or None
+    except Exception:  # noqa: BLE001
+        logger.warning("Preprocess audit failed for dataset %s", dataset.id, exc_info=True)
     await db.commit()
     await db.refresh(dataset)
     logger.info(
@@ -144,7 +152,23 @@ async def get_dataset(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    return await _get_owned_dataset(dataset_id, user, db)
+    dataset = await _get_owned_dataset(dataset_id, user, db)
+    # Backfill the cleaning audit for datasets uploaded before this feature (or
+    # before the audit was stored). Computed once, then cached on the row.
+    if (
+        dataset.status == DatasetStatus.ready
+        and not dataset.preprocessed
+        and dataset.preprocessing_summary is None
+        and dataset.parquet_path
+    ):
+        try:
+            dataset.preprocessing_summary = (
+                await asyncio.to_thread(preprocessing.audit, dataset.parquet_path)
+            ) or []
+            await db.commit()
+        except Exception:  # noqa: BLE001 — audit is best-effort, never block a read
+            logger.warning("Lazy audit failed for dataset %s", dataset.id, exc_info=True)
+    return dataset
 
 
 @router.get("/{dataset_id}/profile", response_model=DatasetProfile)
@@ -163,6 +187,61 @@ async def get_dataset_profile(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
     return dataset
+
+
+@router.post("/{dataset_id}/preprocess", response_model=DatasetProfile)
+async def preprocess_dataset(
+    dataset_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Apply safe, report-appropriate cleaning to the dataset IN PLACE: the cleaned
+    Parquet replaces the raw one (the original CSV is preserved on disk), columns
+    are re-profiled, and reports generated afterwards use the cleaned data."""
+    dataset = await _get_owned_dataset(dataset_id, user, db)
+    if dataset.status != DatasetStatus.ready or not dataset.parquet_path:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="Dataset is not ready"
+        )
+
+    def _run(path: str):
+        import pandas as pd
+
+        df = pd.read_parquet(path)
+        cleaned, changes = preprocessing.clean_dataframe(df)
+        ingestion.write_parquet(cleaned, path)  # overwrite the cache; CSV stays as backup
+        profiles = ingestion.profile_dataframe(cleaned)
+        return len(cleaned), cleaned.shape[1], profiles, changes
+
+    try:
+        row_count, col_count, profiles, changes = await asyncio.to_thread(
+            _run, dataset.parquet_path
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Preprocessing failed for dataset %s", dataset.id)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=f"Could not pre-process dataset: {exc}",
+        )
+
+    # Replace the column profile with the cleaned one.
+    await db.execute(
+        delete(DatasetColumn).where(DatasetColumn.dataset_id == dataset.id)
+    )
+    db.add_all([DatasetColumn(dataset_id=dataset.id, **p) for p in profiles])
+    dataset.row_count = row_count
+    dataset.col_count = col_count
+    dataset.preprocessed = True
+    dataset.preprocessing_summary = changes or []
+    await db.commit()
+
+    result = await db.scalar(
+        select(Dataset)
+        .where(Dataset.id == dataset.id)
+        .options(selectinload(Dataset.columns))
+    )
+    logger.info("Dataset %s preprocessed: %d changes", dataset.id, len(changes))
+    return result
 
 
 @router.patch("/{dataset_id}", response_model=DatasetRead)

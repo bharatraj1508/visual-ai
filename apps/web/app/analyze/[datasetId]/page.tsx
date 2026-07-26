@@ -11,7 +11,11 @@ import EditableTitle from "@/components/EditableTitle";
 import Spinner from "@/components/common/Spinner";
 import useShowApiErrorMessage from "@/hooks/api/useShowApiErrorMessage";
 import { useRequireAuth } from "@/hooks/auth/useRequireAuth";
-import { useDataset, useRenameDataset } from "@/services/api/requests/datasets";
+import {
+  useDataset,
+  usePreprocessDataset,
+  useRenameDataset,
+} from "@/services/api/requests/datasets";
 import { useCreateReport, useReports } from "@/services/api/requests/reports";
 import {
   useDismissSuggestion,
@@ -19,6 +23,7 @@ import {
   useSuggestions,
 } from "@/services/api/requests/suggestions";
 import { SuggestionQueryKey } from "@/services/api/types/SuggestionQueryKey";
+import { PreprocessChange } from "@/types/dataset";
 import { Report } from "@/types/report";
 import { ReportSuggestion } from "@/types/suggestion";
 import { formatCostDual } from "@/utils/currency";
@@ -61,10 +66,29 @@ export default function AnalyzePage() {
   const createReport = useCreateReport();
   const dismiss = useDismissSuggestion(datasetId);
   const regenerate = useRegenerateSuggestions(datasetId);
+  const preprocess = usePreprocessDataset(datasetId);
 
   const [busyId, setBusyId] = useState<string | null>(null);
 
   if (!token) return null;
+
+  const runPreprocess = () => {
+    if (preprocess.isPending) return;
+    preprocess.mutate(undefined, {
+      onSuccess: () => {
+        // The schema changed, so the old suggestions are stale — refresh them
+        // on the cleaned data.
+        queryClient.invalidateQueries({
+          queryKey: [SuggestionQueryKey.Suggestions, datasetId],
+        });
+        regenerate.mutate(undefined, { onError: showError });
+      },
+      onError: showError,
+    });
+  };
+
+  const changes = dataset?.preprocessing_summary ?? [];
+  const needsPreprocess = !!dataset && !dataset.preprocessed && changes.length > 0;
 
   const generate = (suggestion: ReportSuggestion) => {
     if (busyId) return;
@@ -127,6 +151,16 @@ export default function AnalyzePage() {
           <ErrorPanel />
         ) : (
           <>
+            {(needsPreprocess ||
+              (dataset?.preprocessed && changes.length > 0)) && (
+              <PreprocessCard
+                done={!!dataset?.preprocessed}
+                changes={changes}
+                busy={preprocess.isPending || regenerate.isPending}
+                onRun={runPreprocess}
+              />
+            )}
+
             {generatedReports.length > 0 && (
               <section className="mb-10">
                 <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-400">
@@ -183,6 +217,85 @@ export default function AnalyzePage() {
         )}
       </main>
     </div>
+  );
+}
+
+function PreprocessCard({
+  done,
+  changes,
+  busy,
+  onRun,
+}: {
+  done: boolean;
+  changes: PreprocessChange[];
+  busy: boolean;
+  onRun: () => void;
+}) {
+  const accent = done
+    ? "border-green-200 bg-green-50/60"
+    : "border-amber-200 bg-amber-50/60";
+  return (
+    <section className={`mb-8 rounded-2xl border p-5 ${accent}`}>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <span
+            className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${
+              done ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"
+            }`}
+          >
+            {done ? (
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M20 6 9 17l-5-5" />
+              </svg>
+            ) : (
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 6h18M7 12h10M10 18h4" />
+              </svg>
+            )}
+          </span>
+          <div>
+            <h3 className="text-sm font-semibold text-gray-900">
+              {done
+                ? "Dataset cleaned"
+                : "Pre-processing recommended"}
+            </h3>
+            <p className="mt-0.5 text-sm text-gray-600">
+              {done
+                ? "Reports are generated from the cleaned data. Applied:"
+                : "We spotted data-quality issues worth fixing before generating reports:"}
+            </p>
+          </div>
+        </div>
+        {!done && (
+          <button
+            onClick={onRun}
+            disabled={busy}
+            className="shrink-0 rounded-lg bg-amber-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-700 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {busy ? "Pre-processing…" : "Pre-process now"}
+          </button>
+        )}
+      </div>
+
+      <ul className="mt-4 space-y-1.5 pl-11">
+        {changes.map((c, i) => (
+          <li key={i} className="flex gap-2 text-sm text-gray-600">
+            <span className={done ? "text-green-600" : "text-amber-600"}>•</span>
+            <span>
+              <span className="font-medium text-gray-800">{c.title}.</span>{" "}
+              {c.detail}
+            </span>
+          </li>
+        ))}
+      </ul>
+
+      {!done && (
+        <p className="mt-3 pl-11 text-xs text-gray-400">
+          Non-destructive — your original file is kept, and only safe fixes are
+          applied (no data is invented or dropped beyond exact duplicates).
+        </p>
+      )}
+    </section>
   );
 }
 
