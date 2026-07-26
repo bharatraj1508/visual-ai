@@ -14,6 +14,7 @@ import re
 from app.agent.context import DatasetContext
 from app.agent.graph import build_model
 from app.agent.tools.chart_spec import CHART_TYPES
+from app.core.config import settings
 from app.core.logging import logger
 
 _ALLOWED_CHARTS = set(CHART_TYPES)
@@ -26,56 +27,32 @@ _CHART_VOCAB = (
 
 SUGGESTION_COUNT = 5
 
-# A worked example shows the model the DEPTH we want — a report is a
-# multi-column investigation with a thesis, not a single chart.
+# A terse worked example anchors the DEPTH we want (multi-column investigation
+# with a thesis, not a single chart) without spending many tokens.
 _EXAMPLE = (
     '{"title": "What separates high-churn customers from loyal ones?", '
-    '"question": "Comparing churned vs. retained customers, which combination '
-    'of tenure, monthly_charges, and contract_type best predicts churn?", '
-    '"rationale": "Segment the base into churned vs. retained cohorts, then '
-    'compare distributions and rates across contract type and charge bands to '
-    'isolate the highest-risk profile. Expect month-to-month, high-charge, '
-    'short-tenure customers to dominate churn.", '
-    '"chart_types": ["grouped_bar", "stacked_bar", "scatter"]}'
+    '"question": "Which combination of tenure, monthly_charges and contract_type '
+    'best predicts churn?", '
+    '"rationale": "Compare churned vs. retained cohorts across contract type and '
+    'charge bands to isolate the highest-risk profile.", '
+    '"chart_types": ["grouped_bar", "scatter"]}'
 )
 
+# Schema first so the stable per-dataset prefix is cacheable; instructions are
+# tightened to the essentials — structured JSON output needs no verbose framing.
 _PROMPT = """{schema}
 
-You are a senior data analyst scoping an engagement. You have just been handed \
-the dataset above. Propose the {count} highest-value reports to build from it.
+Propose the {count} highest-value analytical reports for THIS dataset. Each must \
+be a genuine investigation with a thesis that relates MULTIPLE columns (segment \
+cohorts and compare them, find drivers/correlates of an outcome, profile outliers, \
+or surface anomalies) — never a trivial one/two-column lookup, and each must name \
+at least two real columns. The {count} must be distinct angles, not rephrasings.
 
-Think like an analyst, not a chart generator. Each report must be a genuine \
-INVESTIGATION with a thesis — it should combine, segment, or relate MULTIPLE \
-columns and lead to an actionable insight. Draw on the column names, types, \
-sample values and cardinalities to ground every idea in THIS dataset's actual \
-subject matter.
+Each object: "title" (insight-oriented), "question" (names the columns and the \
+comparison), "rationale" (approach + expected insight, 1-2 sentences), \
+"chart_types" (2-4 from [{charts}]).
 
-Strongly prefer reports that:
-- segment the population into cohorts and compare them (e.g. high vs. low on an \
-outcome, or across a key category);
-- identify the drivers or correlates of an important outcome variable;
-- profile a notable group (at-risk, top performers, outliers) across several signals;
-- examine how a metric shifts across one dimension while accounting for another;
-- surface anomalies, imbalances, or surprising distributions.
-
-Hard rules:
-- Do NOT propose trivial one-variable or two-variable lookups. Titles like \
-"age vs hours", "distribution of X", "overview", or "X by Y" are single charts, \
-NOT reports — never use them.
-- Each report must reference at least TWO real columns from the schema by name.
-- The 5 reports must be genuinely distinct angles, not rephrasings of each other.
-
-Return each report as an object:
-- "title": a specific, insight-oriented name, ideally phrased as the finding or \
-question (e.g. the example below)
-- "question": the precise analytical question, naming the columns involved and \
-the comparison/segmentation being made
-- "rationale": 1-2 sentences covering BOTH the analytical approach (segmentation, \
-correlation, cohort comparison, driver analysis...) and the insight you expect
-- "chart_types": 2-4 types from [{charts}] that would best evidence the analysis
-
-Example of the expected depth:
-{example}
+Example: {example}
 
 Respond with ONLY a JSON array of exactly {count} such objects — no prose."""
 
@@ -89,9 +66,13 @@ async def suggest_reports(ctx: DatasetContext, count: int = SUGGESTION_COUNT) ->
         example=_EXAMPLE,
     )
     try:
-        # A little temperature for varied angles; the default retry count keeps
-        # a transient blip from silently dropping us to the shallow fallback.
-        resp = await build_model(temperature=0.7).ainvoke(prompt)
+        # A little temperature for varied angles (0.5 is plenty); the output cap
+        # bounds cost, and the default retry count keeps a transient blip from
+        # silently dropping us to the shallow fallback.
+        resp = await build_model(
+            temperature=0.5,
+            max_output_tokens=settings.SUGGESTION_MAX_OUTPUT_TOKENS,
+        ).ainvoke(prompt)
     except Exception:  # noqa: BLE001 — fall back rather than fail the panel
         logger.warning(
             "Suggestion generation failed for dataset %s; using fallback ideas.",

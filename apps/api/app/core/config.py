@@ -22,11 +22,37 @@ class Settings(BaseSettings):
     # if report reasoning ever slips.
     GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     # Max ReAct steps (model <-> tool round-trips) before LangGraph aborts.
-    # Guards against the agent looping on a hard question.
-    AGENT_RECURSION_LIMIT: int = 50
+    # Only chat mode still runs the ReAct loop (reports are now single-shot), so
+    # this caps an interactive turn. Kept modest to bound the worst-case cost of
+    # a confused turn — 12 round-trips is ample for any real question.
+    AGENT_RECURSION_LIMIT: int = 12
     # Retries (with exponential backoff) for transient LLM errors — 503 model
     # overload, 429 rate limits, 500s. Set to 0 to fail fast.
     LLM_MAX_RETRIES: int = 3
+    # Thinking-token budget. Our tasks reason deterministically in Python, so we
+    # want thinking minimal. NOTE: Gemini-3 models (e.g. gemini-3.5-flash-lite)
+    # REJECT 0 with a 400 — the lowest valid disable is a small positive cap.
+    # Values: a low int caps reasoning cost; -1 = dynamic/auto; None = don't send
+    # (use the model default, safest if you switch to a model with a higher min).
+    LLM_THINKING_BUDGET: int | None = 128
+    # Hard caps on generated output tokens. Unbounded output is both a cost and a
+    # verbosity risk; these are generous ceilings, not targets. The section cap is
+    # sized for a rich ~120-180 word paragraph; the plan cap must fit the whole
+    # plan JSON (summary + up to 6 sections + recommendations).
+    REPORT_SECTION_MAX_OUTPUT_TOKENS: int = 1024
+    REPORT_PLAN_MAX_OUTPUT_TOKENS: int = 2048
+    SUGGESTION_MAX_OUTPUT_TOKENS: int = 700
+    CHAT_MAX_OUTPUT_TOKENS: int = 2048
+    # Chat sends recent history back on every turn; cap it so a long session
+    # can't grow the per-turn context (and cost) without bound.
+    CHAT_HISTORY_MAX_MESSAGES: int = 12
+    # Deterministic analysis-battery limits: how many findings/charts to compute
+    # before the (single) LLM plan pass. Broad enough for a varied, multi-section
+    # report; the plan curates the most goal-relevant subset.
+    ANALYSIS_MAX_FINDINGS: int = 18
+    ANALYSIS_MAX_CHARTS: int = 14
+    # Charts shown in any one report section — keeps them spread out, not piled up.
+    REPORT_MAX_CHARTS_PER_SECTION: int = 3
     # Token pricing (USD per 1M tokens) for the active model, used to cost each
     # report. Defaults match gemini-3.5-flash-lite; override if the model changes.
     GEMINI_INPUT_PRICE_PER_1M: float = 0.30
