@@ -7,6 +7,7 @@ from app.models.dataset import Dataset, DatasetStatus
 from app.models.dataset_column import DatasetColumn
 from app.models.message import Message
 from app.models.report import Report, ReportStatus
+from app.models.report_suggestion import ReportSuggestion, SuggestionStatus
 from app.models.user import User
 
 __all__ = [
@@ -20,4 +21,6 @@ __all__ = [
     "Artifact",
     "Report",
     "ReportStatus",
+    "ReportSuggestion",
+    "SuggestionStatus",
 ]

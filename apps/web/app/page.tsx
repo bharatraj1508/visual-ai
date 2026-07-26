@@ -1,5 +1,32 @@
-import { redirect } from "next/navigation";
+import ChartTypes from "@/components/landing/ChartTypes";
+import CtaBand from "@/components/landing/CtaBand";
+import DashboardShowcase from "@/components/landing/DashboardShowcase";
+import Hero from "@/components/landing/Hero";
+import HowItWorks from "@/components/landing/HowItWorks";
+import LandingFooter from "@/components/landing/LandingFooter";
+import LandingNav from "@/components/landing/LandingNav";
+import LandingShell from "@/components/landing/LandingShell";
+import ProblemStatement from "@/components/landing/ProblemStatement";
+import Showcase from "@/components/landing/Showcase";
+import Thesis from "@/components/landing/Thesis";
 
 export default function Home() {
-  redirect("/dashboard");
+  return (
+    <LandingShell>
+      <div className="min-h-screen bg-white">
+        <LandingNav />
+        <main>
+          <Hero />
+          <Thesis />
+          <HowItWorks />
+          <Showcase />
+          <ProblemStatement />
+          <DashboardShowcase />
+          <ChartTypes />
+          <CtaBand />
+        </main>
+        <LandingFooter />
+      </div>
+    </LandingShell>
+  );
 }

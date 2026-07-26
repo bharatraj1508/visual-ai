@@ -8,8 +8,8 @@ from __future__ import annotations
 import enum
 import uuid
 
-from sqlalchemy import Enum as SAEnum
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import Boolean, Enum as SAEnum
+from sqlalchemy import Float, ForeignKey, Integer, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -40,3 +40,12 @@ class Report(UUIDMixin, TimestampMixin, Base):
     )
     content: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     error: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # LLM token usage + priced cost for this run. Null for reports generated
+    # before cost tracking existed — cost can't be reconstructed after the fact.
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Soft delete: archived reports are hidden by default but can be restored.
+    archived: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )

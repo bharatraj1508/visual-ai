@@ -7,13 +7,27 @@ import { DatasetQueryKey } from "../types/DatasetQueryKey";
 
 const baseURL = `${baseApiURL}/datasets`;
 
-export function useDatasets() {
+export function useDatasets(archived = false) {
   return useQuery({
-    queryKey: [DatasetQueryKey.Datasets],
+    queryKey: [DatasetQueryKey.Datasets, "list", archived],
     async queryFn() {
-      const { data } = await api.get<Dataset[]>("", { baseURL });
+      const { data } = await api.get<Dataset[]>("", {
+        baseURL,
+        params: { archived },
+      });
       return data;
     },
+  });
+}
+
+export function useDataset(id: string) {
+  return useQuery({
+    queryKey: [DatasetQueryKey.Datasets, id],
+    async queryFn() {
+      const { data } = await api.get<Dataset>(`/${id}`, { baseURL });
+      return data;
+    },
+    enabled: !!id,
   });
 }
 
@@ -45,11 +59,58 @@ export function useUploadDataset() {
   });
 }
 
-export function useDeleteDataset() {
+export function useRenameDataset(id: string) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn(id: string) {
-      return api.delete(`/${id}`, { baseURL });
+    async mutationFn(filename: string) {
+      const { data } = await api.patch<Dataset>(
+        `/${id}`,
+        { filename },
+        { baseURL },
+      );
+      return data;
+    },
+    onSuccess(data) {
+      queryClient.setQueryData([DatasetQueryKey.Datasets, id], data);
+      queryClient.invalidateQueries({ queryKey: [DatasetQueryKey.Datasets] });
+    },
+  });
+}
+
+/** Applies safe data-cleaning to the dataset in place; reports generated
+ * afterwards use the cleaned data. Returns the re-profiled dataset. */
+export function usePreprocessDataset(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    async mutationFn() {
+      const { data } = await api.post<DatasetProfile>(
+        `/${id}/preprocess`,
+        undefined,
+        { baseURL },
+      );
+      return data;
+    },
+    onSuccess(data) {
+      queryClient.setQueryData([DatasetQueryKey.Datasets, id], data);
+      queryClient.invalidateQueries({ queryKey: [DatasetQueryKey.Datasets] });
+      queryClient.invalidateQueries({
+        queryKey: [DatasetQueryKey.DatasetProfile, id],
+      });
+    },
+  });
+}
+
+/** Archive (soft-delete) or restore a dataset — never a hard delete, so it can
+ * always be brought back. */
+export function useArchiveDataset() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    async mutationFn({ id, archived }: { id: string; archived: boolean }) {
+      const action = archived ? "archive" : "unarchive";
+      const { data } = await api.post<Dataset>(`/${id}/${action}`, undefined, {
+        baseURL,
+      });
+      return data;
     },
     onSuccess() {
       queryClient.invalidateQueries({ queryKey: [DatasetQueryKey.Datasets] });

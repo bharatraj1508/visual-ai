@@ -7,7 +7,7 @@ import { useParams } from "next/navigation";
 import { toast } from "react-toastify";
 
 import AppHeader from "@/components/AppHeader";
-import VegaChart from "@/components/chart/VegaChart";
+import ChartRenderer from "@/components/chart/ChartRenderer";
 import MarkdownMessage from "@/components/chat/MarkdownMessage";
 import ThinkingIndicator from "@/components/chat/ThinkingIndicator";
 import Spinner from "@/components/common/Spinner";
@@ -15,6 +15,7 @@ import { useChatStream } from "@/hooks/chat/useChatStream";
 import { useRequireAuth } from "@/hooks/auth/useRequireAuth";
 import { useMessages } from "@/services/api/requests/chat";
 import { ChatQueryKey } from "@/services/api/types/ChatQueryKey";
+import { ChartSpec } from "@/types/chart";
 import { ChartArtifact } from "@/types/chat";
 
 // Friendly labels for the "what's the agent doing" indicator.
@@ -140,7 +141,10 @@ export default function ChatPage() {
                   <MarkdownMessage content={message.content} />
                 ))}
               {message.artifacts.map((artifact) => (
-                <VegaChart key={artifact.id} spec={artifact.spec} />
+                <ChartRenderer
+                  key={artifact.id}
+                  spec={artifact.spec as unknown as ChartSpec}
+                />
               ))}
             </Bubble>
           ))}
@@ -153,7 +157,10 @@ export default function ChatPage() {
                 {streaming && <ThinkingIndicator label={activity} />}
                 {liveText && <MarkdownMessage content={liveText} />}
                 {liveCharts.map((spec, index) => (
-                  <VegaChart key={index} spec={spec} />
+                  <ChartRenderer
+                    key={index}
+                    spec={spec as unknown as ChartSpec}
+                  />
                 ))}
               </Bubble>
             )}

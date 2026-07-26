@@ -16,6 +16,7 @@ from sse_starlette.sse import EventSourceResponse
 from app.agent.context import DatasetContext
 from app.agent.graph import build_agent
 from app.agent.streaming import stream_agent_events
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.artifact import Artifact
@@ -159,6 +160,11 @@ async def send_message(
         for m in history
         if m.role in ("user", "assistant") and m.content
     ]
+    # Bound the context re-sent every turn: a long session would otherwise grow
+    # the per-turn input (and cost) without limit. Keep the most recent turns —
+    # the current user message is always included since it was just appended.
+    if len(lc_messages) > settings.CHAT_HISTORY_MAX_MESSAGES:
+        lc_messages = lc_messages[-settings.CHAT_HISTORY_MAX_MESSAGES:]
 
     async def event_generator():
         assistant_parts: list[str] = []

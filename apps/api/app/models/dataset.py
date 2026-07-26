@@ -6,8 +6,9 @@ import enum
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Enum as SAEnum
+from sqlalchemy import Boolean, Enum as SAEnum
 from sqlalchemy import ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin, UUIDMixin
@@ -41,6 +42,17 @@ class Dataset(UUIDMixin, TimestampMixin, Base):
         nullable=False,
     )
     error: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # Data-cleaning state. At ingest we store the AUDIT (what cleaning would do);
+    # after the user runs "Pre-process now" we flip the flag and replace the
+    # summary with what was actually applied.
+    preprocessed: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
+    preprocessing_summary: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Soft delete: archived datasets are hidden by default but can be restored.
+    archived: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
 
     owner: Mapped["User"] = relationship(back_populates="datasets")
     columns: Mapped[list["DatasetColumn"]] = relationship(
