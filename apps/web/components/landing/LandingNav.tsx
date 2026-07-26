@@ -8,7 +8,8 @@ import Link from "next/link";
 const LINKS = [
   { label: "How it works", href: "#how" },
   { label: "Reports", href: "#showcase" },
-  { label: "Charts", href: "#charts" },
+  { label: "Problem statements", href: "#problem-statement" },
+  { label: "Dashboard", href: "#dashboard" },
 ];
 
 export default function LandingNav() {
