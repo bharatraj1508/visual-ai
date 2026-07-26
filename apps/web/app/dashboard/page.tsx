@@ -3,17 +3,18 @@
 import { ChangeEvent, useRef } from "react";
 
 import { useRouter } from "next/navigation";
+import { toast } from "react-toastify";
 
 import AppHeader from "@/components/AppHeader";
 import Spinner from "@/components/common/Spinner";
 import useShowApiErrorMessage from "@/hooks/api/useShowApiErrorMessage";
 import { useRequireAuth } from "@/hooks/auth/useRequireAuth";
-import { useCreateSession } from "@/services/api/requests/chat";
 import {
   useDatasets,
   useDeleteDataset,
   useUploadDataset,
 } from "@/services/api/requests/datasets";
+import { MAX_UPLOAD_BYTES, MAX_UPLOAD_MB } from "@/utils/config";
 
 export default function DashboardPage() {
   const token = useRequireAuth();
@@ -24,24 +25,27 @@ export default function DashboardPage() {
   const { data: datasets, isLoading } = useDatasets();
   const upload = useUploadDataset();
   const remove = useDeleteDataset();
-  const createSession = useCreateSession();
 
   if (!token) return null;
 
   const onFile = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file) upload.mutate(file, { onError: showError });
     event.target.value = "";
+    if (!file) return;
+    // Refuse oversized files up front — no point uploading what the API rejects.
+    if (file.size > MAX_UPLOAD_BYTES) {
+      toast.error(`File exceeds the ${MAX_UPLOAD_MB} MB limit`);
+      return;
+    }
+    // A fresh upload goes straight to analysis — no intermediate step.
+    upload.mutate(file, {
+      onSuccess: (dataset) => router.push(`/analyze/${dataset.id}`),
+      onError: showError,
+    });
   };
 
-  const openChat = (datasetId: string) =>
-    createSession.mutate(
-      { dataset_id: datasetId },
-      {
-        onSuccess: (session) => router.push(`/chat/${session.id}`),
-        onError: showError,
-      },
-    );
+  const openAnalyze = (datasetId: string) =>
+    router.push(`/analyze/${datasetId}`);
 
   return (
     <div>
@@ -88,13 +92,11 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => openChat(dataset.id)}
-                    disabled={
-                      dataset.status !== "ready" || createSession.isPending
-                    }
-                    className="rounded-md bg-secondary px-3 py-1.5 text-sm text-white disabled:opacity-40"
+                    onClick={() => openAnalyze(dataset.id)}
+                    disabled={dataset.status !== "ready"}
+                    className="rounded-md bg-primary px-3 py-1.5 text-sm text-white disabled:opacity-40"
                   >
-                    Chat
+                    Analyze
                   </button>
                   <button
                     onClick={() =>

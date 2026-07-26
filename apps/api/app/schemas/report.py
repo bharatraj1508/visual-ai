@@ -9,8 +9,15 @@ from app.models.report import ReportStatus
 
 class ReportCreate(BaseModel):
     dataset_id: uuid.UUID
-    goal: str = Field(min_length=1, description="What the report should cover.")
+    # Either provide a free-text goal, or a suggestion_id to build the report
+    # from an AI suggestion (its question/rationale become the goal).
+    goal: str | None = Field(default=None, description="What the report should cover.")
     title: str | None = Field(default=None, max_length=255)
+    suggestion_id: uuid.UUID | None = None
+
+
+class ReportUpdate(BaseModel):
+    title: str = Field(min_length=1, max_length=255)
 
 
 class ReportRead(BaseModel):

@@ -16,11 +16,17 @@ class Settings(BaseSettings):
 
     # AI Provider API Keys (Make optional for now)
     GOOGLE_API_KEY: Optional[SecretStr] = None
-    # Default Gemini model used by the agent. flash is cheap/fast; swap to -pro for harder analysis.
-    GEMINI_MODEL: str = "gemini-3.5-flash"
+    # Default Gemini model. flash-lite is ~70% cheaper than flash ($0.30/$2.50 vs
+    # $1.50/$9.00 per 1M tokens) and still supports function calling + structured
+    # output + 1M context, which is all the agent needs. Bump to gemini-3.5-flash
+    # if report reasoning ever slips.
+    GEMINI_MODEL: str = "gemini-3.5-flash-lite"
     # Max ReAct steps (model <-> tool round-trips) before LangGraph aborts.
     # Guards against the agent looping on a hard question.
     AGENT_RECURSION_LIMIT: int = 50
+    # Retries (with exponential backoff) for transient LLM errors — 503 model
+    # overload, 429 rate limits, 500s. Set to 0 to fail fast.
+    LLM_MAX_RETRIES: int = 3
 
     # Security / Auth (JWT). SECRET_KEY MUST be overridden in production via .env.
     SECRET_KEY: str = "dev-secret-change-me-in-production"
@@ -29,6 +35,14 @@ class Settings(BaseSettings):
 
     # File storage root for uploaded CSVs and their Parquet cache.
     STORAGE_DIR: str = "storage"
+
+    # Max CSV upload size. This is a small-data app (pandas in-memory + DuckDB),
+    # so the cap protects the API from OOM on oversized files.
+    MAX_UPLOAD_MB: int = 50
+
+    @property
+    def max_upload_bytes(self) -> int:
+        return self.MAX_UPLOAD_MB * 1024 * 1024
 
     # CORS origins for the Next.js frontend (comma-separated list in the .env).
     BACKEND_CORS_ORIGINS: str = "http://localhost:3000"

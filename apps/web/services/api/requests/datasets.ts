@@ -17,6 +17,17 @@ export function useDatasets() {
   });
 }
 
+export function useDataset(id: string) {
+  return useQuery({
+    queryKey: [DatasetQueryKey.Datasets, id],
+    async queryFn() {
+      const { data } = await api.get<Dataset>(`/${id}`, { baseURL });
+      return data;
+    },
+    enabled: !!id,
+  });
+}
+
 export function useDatasetProfile(id: string) {
   return useQuery({
     queryKey: [DatasetQueryKey.DatasetProfile, id],
@@ -40,6 +51,24 @@ export function useUploadDataset() {
       return data;
     },
     onSuccess() {
+      queryClient.invalidateQueries({ queryKey: [DatasetQueryKey.Datasets] });
+    },
+  });
+}
+
+export function useRenameDataset(id: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    async mutationFn(filename: string) {
+      const { data } = await api.patch<Dataset>(
+        `/${id}`,
+        { filename },
+        { baseURL },
+      );
+      return data;
+    },
+    onSuccess(data) {
+      queryClient.setQueryData([DatasetQueryKey.Datasets, id], data);
       queryClient.invalidateQueries({ queryKey: [DatasetQueryKey.Datasets] });
     },
   });

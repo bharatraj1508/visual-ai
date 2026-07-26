@@ -7,6 +7,7 @@ from fastapi import (
     APIRouter,
     Depends,
     HTTPException,
+    Request,
     UploadFile,
     status,
 )
@@ -14,18 +15,24 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.logging import logger
 from app.core.security import get_current_user
 from app.models.dataset import Dataset, DatasetStatus
 from app.models.dataset_column import DatasetColumn
 from app.models.user import User
-from app.schemas.dataset import DatasetProfile, DatasetRead
+from app.schemas.dataset import DatasetProfile, DatasetRead, DatasetUpdate
 from app.services import ingestion, storage
 
 router = APIRouter()
 
-_MAX_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB (small-data tier)
+
+def _too_large() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        detail=f"File exceeds the {settings.MAX_UPLOAD_MB} MB limit",
+    )
 
 
 async def _get_owned_dataset(
@@ -47,6 +54,7 @@ async def _get_owned_dataset(
     "", response_model=DatasetRead, status_code=status.HTTP_201_CREATED
 )
 async def upload_dataset(
+    request: Request,
     file: UploadFile,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
@@ -57,12 +65,16 @@ async def upload_dataset(
             detail="Only .csv files are supported",
         )
 
+    # Fail fast on the declared body size before buffering the upload. The
+    # header can be absent or wrong, so the post-read check below is the
+    # authoritative backstop.
+    declared = request.headers.get("content-length")
+    if declared and declared.isdigit() and int(declared) > settings.max_upload_bytes:
+        raise _too_large()
+
     contents = await file.read()
-    if len(contents) > _MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail="File exceeds the 50 MB limit",
-        )
+    if len(contents) > settings.max_upload_bytes:
+        raise _too_large()
 
     # Create the dataset row first so we have an id for the storage path.
     dataset = Dataset(
@@ -150,6 +162,20 @@ async def get_dataset_profile(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
+    return dataset
+
+
+@router.patch("/{dataset_id}", response_model=DatasetRead)
+async def rename_dataset(
+    dataset_id: uuid.UUID,
+    payload: DatasetUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    dataset = await _get_owned_dataset(dataset_id, user, db)
+    dataset.filename = payload.filename.strip()
+    await db.commit()
+    await db.refresh(dataset)
     return dataset
 
 

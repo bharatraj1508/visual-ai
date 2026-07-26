@@ -19,6 +19,30 @@ from app.core.config import settings
 from app.core.logging import logger
 
 
+def friendly_error_detail(exc: Exception) -> str:
+    """Map common transient LLM failures to a clear, actionable message."""
+    text = str(exc)
+    low = text.lower()
+    if "503" in text or "unavailable" in low or "overloaded" in low:
+        return (
+            "The AI service is temporarily overloaded (503). This is usually "
+            "brief — please try again in a moment."
+        )
+    if "429" in text or "resource_exhausted" in low or "quota" in low:
+        return (
+            "The AI service rate limit was reached. Please wait a moment and "
+            "try again."
+        )
+    if "500" in text or "internal" in low:
+        return "The AI service hit an internal error. Please try again."
+    if any(s in text for s in ("401", "403")) or "api key" in low or "permission" in low:
+        return (
+            "The AI service rejected the request. Check the API key / model "
+            "configuration."
+        )
+    return text
+
+
 def _chunk_text(chunk) -> str:
     """Gemini message chunks carry either a str or a list of content parts."""
     content = getattr(chunk, "content", "")
@@ -87,4 +111,7 @@ async def stream_agent_events(
         }
     except Exception as exc:  # noqa: BLE001 — surface any agent failure to the client
         logger.exception("Agent run failed")
-        yield {"event": "error", "data": json.dumps({"detail": str(exc)})}
+        yield {
+            "event": "error",
+            "data": json.dumps({"detail": friendly_error_detail(exc)}),
+        }

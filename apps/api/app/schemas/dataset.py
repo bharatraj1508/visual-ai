@@ -2,9 +2,13 @@
 import uuid
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.dataset import DatasetStatus
+
+
+class DatasetUpdate(BaseModel):
+    filename: str = Field(min_length=1, max_length=255)
 
 
 class DatasetColumnRead(BaseModel):

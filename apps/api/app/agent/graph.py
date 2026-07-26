@@ -16,7 +16,9 @@ from app.agent.tools.data import build_data_tools
 from app.core.config import settings
 
 
-def build_model() -> ChatGoogleGenerativeAI:
+def build_model(
+    *, temperature: float = 0, max_retries: int | None = None
+) -> ChatGoogleGenerativeAI:
     if settings.GOOGLE_API_KEY is None:
         raise RuntimeError(
             "GOOGLE_API_KEY is not configured. Set it in the environment to "
@@ -25,10 +27,12 @@ def build_model() -> ChatGoogleGenerativeAI:
     return ChatGoogleGenerativeAI(
         model=settings.GEMINI_MODEL,
         google_api_key=settings.GOOGLE_API_KEY.get_secret_value(),
-        temperature=0,
-        # Fail fast: don't sit in long backoff retries on rate limits/errors —
-        # surface the failure to the client immediately instead.
-        max_retries=0,
+        # Default temperature=0 keeps agent tool-use deterministic. One-shot
+        # ideation calls (report suggestions) override this for variety.
+        temperature=temperature,
+        # Retry transient errors (503 overload, 429, 500) with backoff. The
+        # library retries the underlying call, transparent to streaming.
+        max_retries=settings.LLM_MAX_RETRIES if max_retries is None else max_retries,
     )
 
 

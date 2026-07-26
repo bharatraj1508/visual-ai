@@ -1,6 +1,11 @@
-"""Report endpoints. Generation streams over SSE (like chat, no job queue):
-the report row is created as `running`, sections stream in, and the assembled
-content is persisted as `completed` before the final `report_done` event.
+"""Report endpoints.
+
+Creation and generation are split so the client can navigate to a dedicated
+report page and watch it build:
+  POST /reports              — create the row (status `running`) and return it
+  GET  /reports/{id}/stream  — SSE: run the agent, stream sections, persist
+Generation streams like chat (no job queue): sections stream in and the
+assembled content is persisted as `completed` before the final `report_done`.
 """
 import json
 import uuid
@@ -14,13 +19,20 @@ from sse_starlette.sse import EventSourceResponse
 from app.agent.context import DatasetContext
 from app.agent.graph import build_agent
 from app.agent.report import default_planner, generate_report_events
+from app.agent.streaming import friendly_error_detail
 from app.core.database import get_db
 from app.core.logging import logger
 from app.core.security import get_current_user
 from app.models.dataset import Dataset, DatasetStatus
 from app.models.report import Report, ReportStatus
+from app.models.report_suggestion import ReportSuggestion, SuggestionStatus
 from app.models.user import User
-from app.schemas.report import ReportCreate, ReportDetail, ReportRead
+from app.schemas.report import (
+    ReportCreate,
+    ReportDetail,
+    ReportRead,
+    ReportUpdate,
+)
 
 router = APIRouter()
 
@@ -38,16 +50,25 @@ async def _get_owned_report(
     return report
 
 
-@router.post("")
+def _goal_from_suggestion(s: ReportSuggestion) -> str:
+    chart_hint = (
+        f" Where they help, use varied charts such as: {', '.join(s.chart_types)}."
+        if s.chart_types
+        else ""
+    )
+    return f"{s.question} {s.rationale}{chart_hint}".strip()
+
+
+@router.post("", response_model=ReportRead, status_code=status.HTTP_201_CREATED)
 async def create_report(
     payload: ReportCreate,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
     dataset = await db.scalar(
-        select(Dataset)
-        .where(Dataset.id == payload.dataset_id, Dataset.user_id == user.id)
-        .options(selectinload(Dataset.columns))
+        select(Dataset).where(
+            Dataset.id == payload.dataset_id, Dataset.user_id == user.id
+        )
     )
     if dataset is None:
         raise HTTPException(
@@ -58,24 +79,90 @@ async def create_report(
             status_code=status.HTTP_409_CONFLICT, detail="Dataset is not ready"
         )
 
-    ctx = DatasetContext.from_models(dataset, dataset.columns)
+    goal = payload.goal
+    title = payload.title
+    suggestion: ReportSuggestion | None = None
+    if payload.suggestion_id is not None:
+        suggestion = await db.scalar(
+            select(ReportSuggestion).where(
+                ReportSuggestion.id == payload.suggestion_id,
+                ReportSuggestion.user_id == user.id,
+                ReportSuggestion.dataset_id == dataset.id,
+            )
+        )
+        if suggestion is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Suggestion not found",
+            )
+        goal = goal or _goal_from_suggestion(suggestion)
+        title = title or suggestion.title
+
+    if not goal:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Provide a goal or a suggestion_id.",
+        )
+
     report = Report(
         user_id=user.id,
         dataset_id=dataset.id,
-        title=payload.title or f"Report: {dataset.filename}",
-        goal=payload.goal,
+        title=title or f"Report: {dataset.filename}",
+        goal=goal,
         status=ReportStatus.running,
     )
     db.add(report)
     await db.commit()
     await db.refresh(report)
 
+    # Generating a report removes its suggestion card immediately.
+    if suggestion is not None:
+        suggestion.status = SuggestionStatus.generated
+        suggestion.report_id = report.id
+        await db.commit()
+
+    return report
+
+
+@router.get("/{report_id}/stream")
+async def stream_report(
+    report_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    report = await _get_owned_report(report_id, user, db)
+
+    # Already finished (e.g. a page reload after completion) — nothing to run.
+    if report.status == ReportStatus.completed:
+        async def replay():
+            yield {"event": "report_done",
+                   "data": json.dumps({"report_id": str(report.id)})}
+        return EventSourceResponse(replay())
+
+    dataset = await db.scalar(
+        select(Dataset)
+        .where(Dataset.id == report.dataset_id, Dataset.user_id == user.id)
+        .options(selectinload(Dataset.columns))
+    )
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
+
+    # A failed report can be retried simply by re-opening the stream.
+    if report.status == ReportStatus.failed:
+        report.status = ReportStatus.running
+        report.error = None
+        await db.commit()
+
+    ctx = DatasetContext.from_models(dataset, dataset.columns)
+
     async def event_generator():
         sections: list[dict] = []
         current: dict | None = None
         try:
             async for ev in generate_report_events(
-                ctx, payload.goal,
+                ctx, report.goal,
                 planner=default_planner, agent_factory=build_agent,
             ):
                 etype = ev["event"]
@@ -101,25 +188,26 @@ async def create_report(
                    "data": json.dumps({"report_id": str(report.id)})}
         except Exception as exc:  # noqa: BLE001 — record failure, tell the client
             logger.exception("Report generation failed for %s", report.id)
+            detail = friendly_error_detail(exc)
             report.status = ReportStatus.failed
-            report.error = str(exc)[:2048]
+            report.error = detail[:2048]
             report.content = sections or None
             await db.commit()
-            yield {"event": "error", "data": json.dumps({"detail": str(exc)})}
+            yield {"event": "error", "data": json.dumps({"detail": detail})}
 
     return EventSourceResponse(event_generator())
 
 
 @router.get("", response_model=list[ReportRead])
 async def list_reports(
+    dataset_id: uuid.UUID | None = None,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    result = await db.scalars(
-        select(Report)
-        .where(Report.user_id == user.id)
-        .order_by(Report.created_at.desc())
-    )
+    query = select(Report).where(Report.user_id == user.id)
+    if dataset_id is not None:
+        query = query.where(Report.dataset_id == dataset_id)
+    result = await db.scalars(query.order_by(Report.created_at.desc()))
     return list(result)
 
 
@@ -130,6 +218,20 @@ async def get_report(
     user: User = Depends(get_current_user),
 ):
     return await _get_owned_report(report_id, user, db)
+
+
+@router.patch("/{report_id}", response_model=ReportRead)
+async def rename_report(
+    report_id: uuid.UUID,
+    payload: ReportUpdate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    report = await _get_owned_report(report_id, user, db)
+    report.title = payload.title.strip()
+    await db.commit()
+    await db.refresh(report)
+    return report
 
 
 @router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)

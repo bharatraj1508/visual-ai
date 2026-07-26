@@ -36,7 +36,10 @@ async def default_planner(ctx: DatasetContext, goal: str) -> list[str]:
         'strings, e.g. ["Overview", "Trends"].'
     )
     resp = await build_model().ainvoke(prompt)
-    content = resp.content if isinstance(resp.content, str) else str(resp.content)
+    content = resp.content if isinstance(resp.content, str) else "".join(
+        (p.get("text", "") or "") if isinstance(p, dict) else str(p)
+        for p in resp.content
+    )
     match = re.search(r"\[.*\]", content, re.DOTALL)
     if match:
         try:
@@ -71,8 +74,12 @@ async def generate_report_events(
         agent, collector = agent_factory(ctx)
         section_prompt = (
             f"Write the report section titled '{title}' for the goal: {goal}. "
-            "Analyze the data with tools, include a chart if it helps, and keep "
-            "the narrative concise. Do not restate raw table rows."
+            "Analyze the data with tools and create at least one chart that "
+            "backs up your findings — choose the chart type that best reveals "
+            "the point (bar, grouped_bar, stacked_bar, line, area, scatter, "
+            "pie, histogram, dual_axis, radar). Vary chart types across the "
+            "report rather than repeating one. Keep the narrative concise and "
+            "do not restate raw table rows."
         )
         async for ev in stream_agent_events(agent, [("user", section_prompt)], collector):
             yield ev
