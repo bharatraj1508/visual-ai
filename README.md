@@ -10,7 +10,7 @@ for **fractions of a cent**.
 
 </div>
 
-![Datasets dashboard](docs/screenshots/01-datasets.png)
+![Visual AI dashboard](docs/screenshots/06-dashboard.png)
 
 ---
 
@@ -35,7 +35,10 @@ The goal: eliminate the need to know Pandas, SQL, or prompt engineering to get a
 | 📊 | **Chart-backed reports** | Every report is exec summary → analytical sections → recommendations, each backed by the right chart type (bar, grouped/stacked bar, scatter, line, pie/donut, radar, histogram). |
 | 🎯 | **Goal-aware analysis** | The report answers *your* question — it analyzes the columns your goal names (even high-cardinality ones like Country/Genre), not whatever is statistically loudest. |
 | ✅ | **Exact numbers, valid charts** | All statistics are computed in Python (DuckDB/Pandas). The AI writes prose and picks charts — it never calculates or invents a value. |
-| ♻️ | **Report versions + regenerate** | Regenerate any report to get a fresh take without losing the old one; versions stack as collapsible panels. |
+| 🗂️ | **Problem statements & versions** | Every report belongs to one analytical question — a *problem statement*. Regenerate for fresh takes; all versions stack together, newest open, the rest a click away. |
+| ⬇️ | **PDF & ZIP export** | Download any report version as a polished PDF (charts included), or a whole problem statement's versions as a single ZIP. |
+| 🗄️ | **Archive, never delete** | Datasets and reports are archived (soft-deleted), never destroyed — restore any of them anytime from the archived view. |
+| 📋 | **Command-center dashboard** | Total spend, reports generated, rows analyzed, your chart mix, and a "worth a watch" featured report — at a glance. |
 | 🧹 | **One-click data cleaning** | Detects messy types, placeholder nulls, duplicate rows, case-variant categories, and empty columns — cleans them non-destructively before reporting. |
 | 💸 | **Cost transparency** | Each report shows exactly what it cost to generate (~₹0.5 / **$0.006** per report) and the tokens used. |
 | ⚡ | **Live streaming** | Reports stream in section-by-section over SSE, so you watch them build. |
@@ -45,16 +48,15 @@ The goal: eliminate the need to know Pandas, SQL, or prompt engineering to get a
 ## The flow
 
 ```
- Upload CSV ──▶ Profile & audit ──▶ [Clean?] ──▶ AI suggests 5 reports ──▶ Generate ──▶ Streamed report
-                                                                                          ├─ Executive summary
-                                                                                          ├─ Analytical sections + charts
-                                                                                          ├─ Recommendations
-                                                                                          └─ Regenerate → new version
+ Upload CSV ─▶ Profile & audit ─▶ [Clean?] ─▶ AI suggests 5 reports ─▶ Generate ─▶ Streamed report
+                                                                                    ├─ Executive summary
+                                                                                    ├─ Analytical sections + charts
+                                                                                    ├─ Recommendations
+                                                                                    ├─ Regenerate ─▶ new version (stacked)
+                                                                                    └─ Download ─▶ PDF · or ZIP all versions
 ```
 
-**1 · Your datasets** — upload any CSV; it's profiled the moment it lands.
-
-![Datasets](docs/screenshots/01-datasets.png)
+**1 · Upload** — drop any CSV; it's profiled the moment it lands and shows up on your dashboard.
 
 **2 · Analyze** — a cleaning recommendation appears if the data needs it, and generated reports sit alongside fresh AI suggestions.
 
@@ -71,6 +73,27 @@ The goal: eliminate the need to know Pandas, SQL, or prompt engineering to get a
 **5 · Charts that answer the question** — e.g. *Solo vs Lead streams by Country (top 15)* — the exact comparison the goal asked for.
 
 ![Report charts](docs/screenshots/04-report-charts.png)
+
+---
+
+## The dashboard
+
+Your command center: total spend, reports generated, rows analyzed, the chart types you use most, and a **"worth a watch"** featured report. Reports are grouped by **problem statement** — a `+N` badge shows how many versions each has — and every row has a download action (a **PDF** for a single report, a **ZIP** when there are multiple versions).
+
+![Dashboard](docs/screenshots/06-dashboard.png)
+
+---
+
+## Problem statements, versions & downloads
+
+A **problem statement** is a single analytical question you put to your data — e.g. *"Which country markets produce the highest solo-vs-lead streamers?"* Generate it once, then **regenerate** for a fresh take. Every version stacks under that one question (newest open, the rest collapsed), so you can compare angles instead of losing them.
+
+- **Regenerate** — a new version each time, never overwriting the last.
+- **Download a version** — one polished PDF, charts included.
+- **Download all** — every version of a problem statement, zipped.
+- **Archive, never delete** — datasets and reports are soft-deleted and restorable; an Active/Archived toggle on the dashboard brings anything back.
+
+![Report versions with download](docs/screenshots/03-report-versions.png)
 
 ---
 
@@ -107,6 +130,7 @@ The result: a typical report is **~1–2 orders of magnitude cheaper** than an a
 |-------|-------|
 | Frontend | Next.js 14 (App Router), React 18, TypeScript, Tailwind CSS v3 |
 | Charts | Recharts (neutral chart specs compiled server-side) |
+| Export | Client-side PDF (jsPDF + SnapDOM chart capture) and ZIP (JSZip) |
 | State / data | Redux Toolkit + redux-persist, TanStack React Query v5, axios (Bearer interceptor) |
 | Backend | FastAPI, LangGraph + Google **Gemini** (`gemini-3.5-flash-lite`) |
 | Compute | **DuckDB** over **Parquet**, Pandas — all statistics run deterministically |
@@ -128,6 +152,9 @@ visual-ai/
 │   │       app/agent/report.py     # spec → plan → streamed section writes
 │   │       app/services/preprocessing.py  # report-appropriate data cleaning
 │   └── web/     # Next.js 14 frontend (TypeScript)
+│       └── app/dashboard/          # command-center dashboard
+│           app/reports/[reportId]/ # streamed report + versions + downloads
+│           utils/reportPdf.tsx     # client-side PDF / ZIP export
 ├── docs/screenshots/
 ├── turbo.json
 └── package.json
