@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
@@ -75,6 +75,25 @@ export default function AnalyzePage() {
     { needed: number | null; available: number | null } | null
   >(null);
 
+  // Group report versions by problem statement (same goal) so regenerations
+  // stack into one card instead of showing as duplicates. Representative = the
+  // newest version; opening it lands on the report page with all versions.
+  const reportGroups = useMemo(() => {
+    const map = new Map<string, { rep: Report; count: number }>();
+    for (const r of reports ?? []) {
+      const g = map.get(r.goal);
+      if (!g) {
+        map.set(r.goal, { rep: r, count: 1 });
+      } else {
+        g.count += 1;
+        if (new Date(r.created_at) > new Date(g.rep.created_at)) g.rep = r;
+      }
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => +new Date(b.rep.created_at) - +new Date(a.rep.created_at),
+    );
+  }, [reports]);
+
   if (!token) return null;
 
   const runPreprocess = () => {
@@ -128,8 +147,6 @@ export default function AnalyzePage() {
     );
   };
 
-  const generatedReports = reports ?? [];
-
   return (
     <div className="min-h-screen">
       <AppHeader />
@@ -179,17 +196,18 @@ export default function AnalyzePage() {
               />
             )}
 
-            {generatedReports.length > 0 && (
+            {reportGroups.length > 0 && (
               <section className="mb-10">
                 <h2 className="mb-4 text-xs font-semibold uppercase tracking-wider text-gray-400">
                   Generated reports
                 </h2>
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {generatedReports.map((report) => (
+                  {reportGroups.map(({ rep, count }) => (
                     <GeneratedReportCard
-                      key={report.id}
-                      report={report}
-                      onOpen={() => router.push(`/reports/${report.id}`)}
+                      key={rep.id}
+                      report={rep}
+                      versionCount={count}
+                      onOpen={() => router.push(`/reports/${rep.id}`)}
                     />
                   ))}
                 </div>
@@ -326,9 +344,11 @@ function PreprocessCard({
 
 function GeneratedReportCard({
   report,
+  versionCount = 1,
   onOpen,
 }: {
   report: Report;
+  versionCount?: number;
   onOpen: () => void;
 }) {
   const running = report.status === "running";
@@ -364,9 +384,19 @@ function GeneratedReportCard({
         </div>
       </div>
 
-      <h3 className="text-base font-semibold leading-snug text-gray-900">
-        {report.title}
-      </h3>
+      <div className="flex items-center gap-2">
+        <h3 className="text-base font-semibold leading-snug text-gray-900">
+          {report.title}
+        </h3>
+        {versionCount > 1 && (
+          <span
+            title={`${versionCount} versions`}
+            className="shrink-0 rounded-full bg-primary/10 px-1.5 py-0.5 text-[11px] font-semibold text-primary"
+          >
+            +{versionCount - 1}
+          </span>
+        )}
+      </div>
       <p className="mt-1.5 line-clamp-3 text-sm text-gray-500">{report.goal}</p>
 
       <div className="mt-5 flex items-center gap-2 text-sm font-medium text-primary">
