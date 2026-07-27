@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
+import { AxiosError } from "axios";
 import { useParams } from "next/navigation";
 import { toast } from "react-toastify";
 
@@ -13,6 +14,7 @@ import MarkdownMessage from "@/components/chat/MarkdownMessage";
 import ThinkingIndicator from "@/components/chat/ThinkingIndicator";
 import Spinner from "@/components/common/Spinner";
 import EditableTitle from "@/components/EditableTitle";
+import InsufficientCreditsModal from "@/components/InsufficientCreditsModal";
 import { useReportStream } from "@/hooks/report/useReportStream";
 import { useRequireAuth } from "@/hooks/auth/useRequireAuth";
 import { useDataset } from "@/services/api/requests/datasets";
@@ -23,10 +25,10 @@ import {
   useReport,
   useReportVersions,
 } from "@/services/api/requests/reports";
+import { CreditQueryKey } from "@/services/api/types/CreditQueryKey";
 import { ReportQueryKey } from "@/services/api/types/ReportQueryKey";
 import { ChartSpec } from "@/types/chart";
 import { ReportDetail, ReportSection } from "@/types/report";
-import { formatInr, formatUsd } from "@/utils/currency";
 import { downloadReportPdf, downloadReportsZip } from "@/utils/reportPdf";
 
 type LiveSection = { title: string; narrative: string; charts: ChartSpec[] };
@@ -58,11 +60,22 @@ export default function ReportPage() {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const defaultedOpen = useRef(false);
 
+  // Set when a regenerate attempt is rejected for insufficient credits (402).
+  const [shortfall, setShortfall] = useState<
+    { needed: number | null; available: number | null } | null
+  >(null);
+
   const ordered: ReportDetail[] = useMemo(
     () => versions ?? (report ? [report] : []),
     [versions, report],
   );
   const collapsible = ordered.length > 1;
+
+  // Regeneration costs 1/3 of the original report (min 1) — mirrors the backend
+  // REPORT_REGEN_DIVISOR. Based on the original version's charged cost.
+  const originalCost = ordered[0]?.credit_cost ?? report?.credit_cost ?? null;
+  const regenCost =
+    originalCost != null ? Math.max(1, Math.round(originalCost / 3)) : null;
 
   const runStream = useCallback(
     (id: string, options?: { fresh?: boolean; variant?: number }) => {
@@ -108,11 +121,20 @@ export default function ReportPage() {
               queryClient.invalidateQueries({
                 queryKey: [ReportQueryKey.Reports],
               });
+              // Credits were charged on completion — refresh the balance chip
+              // so it updates immediately instead of going stale.
+              queryClient.invalidateQueries({
+                queryKey: [CreditQueryKey.Balance],
+              });
               break;
             case "error":
               setStreamError(
                 event.data.detail || "The report failed to generate.",
               );
+              // Failed generation auto-refunds the hold — refresh the balance.
+              queryClient.invalidateQueries({
+                queryKey: [CreditQueryKey.Balance],
+              });
               break;
           }
         },
@@ -156,6 +178,17 @@ export default function ReportPage() {
       setOpenIds(new Set([created.id])); // only the new one open; collapse the rest
       runStream(created.id, { fresh: true, variant: ordered.length });
     } catch (error) {
+      const err = error as AxiosError<{
+        detail?: { needed?: number; available?: number };
+      }>;
+      if (err?.response?.status === 402) {
+        const d = err.response?.data?.detail;
+        setShortfall({
+          needed: d?.needed ?? null,
+          available: d?.available ?? null,
+        });
+        return;
+      }
       setStreamError(
         error instanceof Error ? error.message : "Could not start a new report.",
       );
@@ -221,7 +254,7 @@ export default function ReportPage() {
       <main className="mx-auto max-w-3xl px-6 py-8">
         <Breadcrumb
           items={[
-            { label: "Datasets", href: "/dashboard" },
+            { label: "Dashboard", href: "/dashboard" },
             {
               label: dataset?.filename ?? "Analyze",
               href: report ? `/analyze/${report.dataset_id}` : undefined,
@@ -290,6 +323,7 @@ export default function ReportPage() {
                 onRetry={() => runStream(version.id)}
                 onRegenerate={onRegenerate}
                 regenerating={regenerate.isPending}
+                regenCost={regenCost}
                 anyStreaming={streaming}
                 onDownload={() => onDownload(version)}
                 onArchive={() => onArchive(version, i)}
@@ -300,6 +334,13 @@ export default function ReportPage() {
           })}
         </div>
       </main>
+
+      <InsufficientCreditsModal
+        open={shortfall !== null}
+        needed={shortfall?.needed ?? null}
+        available={shortfall?.available ?? null}
+        onClose={() => setShortfall(null)}
+      />
     </div>
   );
 }
@@ -317,6 +358,7 @@ function VersionPanel({
   onRetry,
   onRegenerate,
   regenerating,
+  regenCost,
   anyStreaming,
   onDownload,
   onArchive,
@@ -335,6 +377,7 @@ function VersionPanel({
   onRetry: () => void;
   onRegenerate: () => void;
   regenerating: boolean;
+  regenCost: number | null;
   anyStreaming: boolean;
   onDownload: () => void;
   onArchive: () => void;
@@ -386,12 +429,8 @@ function VersionPanel({
         )}
       </button>
       <div className="flex shrink-0 items-center gap-3">
-        {version.status === "completed" && version.cost_usd != null && (
-          <CostBadge
-            cost={version.cost_usd}
-            inputTokens={version.input_tokens}
-            outputTokens={version.output_tokens}
-          />
+        {version.status === "completed" && version.credit_cost != null && (
+          <CreditBadge credits={version.credit_cost} />
         )}
         {done && (
           <button
@@ -416,15 +455,23 @@ function VersionPanel({
             <ArchiveIcon />
           </button>
         )}
-        <button
-          type="button"
-          onClick={onRegenerate}
-          disabled={regenerating || anyStreaming}
-          title="Generate a new version of this report"
-          className="rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {regenerating ? "Starting…" : "Regenerate"}
-        </button>
+        <div className="flex items-center gap-2">
+          {regenCost != null && (
+            <span className="text-[11px] text-gray-400">
+              Regeneration costs {regenCost} credit
+              {regenCost === 1 ? "" : "s"}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onRegenerate}
+            disabled={regenerating || anyStreaming}
+            title="Generate a new version of this report"
+            className="rounded-md border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {regenerating ? "Starting…" : "Regenerate"}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -492,38 +539,17 @@ function formatWhen(iso: string) {
   });
 }
 
-function formatTokens(n: number) {
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : `${n}`;
-}
-
-function CostBadge({
-  cost,
-  inputTokens,
-  outputTokens,
-}: {
-  cost: number;
-  inputTokens: number | null;
-  outputTokens: number | null;
-}) {
-  const total = (inputTokens ?? 0) + (outputTokens ?? 0);
-  const detail =
-    inputTokens != null && outputTokens != null
-      ? `${formatTokens(inputTokens)} in · ${formatTokens(outputTokens)} out`
-      : `${formatTokens(total)} tokens`;
+function CreditBadge({ credits }: { credits: number }) {
   return (
     <div
-      className="inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5"
-      title={`${inputTokens ?? 0} input + ${outputTokens ?? 0} output tokens`}
+      className="inline-flex items-center gap-1.5 rounded-full border border-primary/20 bg-primary/5 px-3 py-1.5"
+      title="Credits used for this report"
     >
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FB676E" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="12" r="9" />
-        <path d="M14.5 9.5A2.5 2.5 0 0 0 12 8c-1.5 0-2.5.8-2.5 2s1 1.6 2.5 2 2.5.9 2.5 2-1 2-2.5 2a2.5 2.5 0 0 1-2.5-1.5M12 6.5v11" />
+      <svg viewBox="0 0 24 24" fill="none" className="h-3.5 w-3.5 text-primary" aria-hidden>
+        <ellipse cx="12" cy="7" rx="7" ry="3" fill="currentColor" opacity="0.9" />
+        <path d="M5 7v6c0 1.66 3.13 3 7 3s7-1.34 7-3V7" stroke="currentColor" strokeWidth="1.6" opacity="0.5" />
       </svg>
-      <span className="text-sm font-semibold text-ink">{formatInr(cost)}</span>
-      <span className="text-xs text-gray-400">({formatUsd(cost)})</span>
-      <span className="hidden font-mono text-[11px] text-gray-400 sm:inline">
-        · {detail}
-      </span>
+      <span className="text-sm font-semibold text-ink">{credits} credits</span>
     </div>
   );
 }

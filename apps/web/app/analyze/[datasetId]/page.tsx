@@ -3,11 +3,13 @@
 import { useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
+import { AxiosError } from "axios";
 import { useParams, useRouter } from "next/navigation";
 
 import AppHeader from "@/components/AppHeader";
 import Breadcrumb from "@/components/Breadcrumb";
 import EditableTitle from "@/components/EditableTitle";
+import InsufficientCreditsModal from "@/components/InsufficientCreditsModal";
 import Spinner from "@/components/common/Spinner";
 import useShowApiErrorMessage from "@/hooks/api/useShowApiErrorMessage";
 import { useRequireAuth } from "@/hooks/auth/useRequireAuth";
@@ -26,7 +28,6 @@ import { SuggestionQueryKey } from "@/services/api/types/SuggestionQueryKey";
 import { PreprocessChange } from "@/types/dataset";
 import { Report } from "@/types/report";
 import { ReportSuggestion } from "@/types/suggestion";
-import { formatCostDual } from "@/utils/currency";
 
 const CHART_LABELS: Record<string, string> = {
   bar: "Bar",
@@ -69,6 +70,10 @@ export default function AnalyzePage() {
   const preprocess = usePreprocessDataset(datasetId);
 
   const [busyId, setBusyId] = useState<string | null>(null);
+  // Set when a generate attempt is rejected for insufficient credits (402).
+  const [shortfall, setShortfall] = useState<
+    { needed: number | null; available: number | null } | null
+  >(null);
 
   if (!token) return null;
 
@@ -104,6 +109,19 @@ export default function AnalyzePage() {
         },
         onError: (error) => {
           setBusyId(null);
+          // Out of credits — show the buy-more modal (the only credit dialog;
+          // there is no pre-generation cost confirmation).
+          const err = error as AxiosError<{
+            detail?: { needed?: number; available?: number };
+          }>;
+          if (err?.response?.status === 402) {
+            const d = err.response?.data?.detail;
+            setShortfall({
+              needed: d?.needed ?? null,
+              available: d?.available ?? null,
+            });
+            return;
+          }
           showError(error);
         },
       },
@@ -118,7 +136,7 @@ export default function AnalyzePage() {
       <main className="mx-auto max-w-5xl px-6 py-8">
         <Breadcrumb
           items={[
-            { label: "Datasets", href: "/dashboard" },
+            { label: "Dashboard", href: "/dashboard" },
             { label: dataset?.filename ?? "Analyze" },
           ]}
         />
@@ -216,6 +234,13 @@ export default function AnalyzePage() {
           </>
         )}
       </main>
+
+      <InsufficientCreditsModal
+        open={shortfall !== null}
+        needed={shortfall?.needed ?? null}
+        available={shortfall?.available ?? null}
+        onClose={() => setShortfall(null)}
+      />
     </div>
   );
 }
@@ -330,9 +355,9 @@ function GeneratedReportCard({
           </svg>
         </span>
         <div className="flex items-center gap-2">
-          {report.cost_usd != null && (
-            <span className="font-mono text-[11px] text-gray-400" title="Cost to generate">
-              {formatCostDual(report.cost_usd)}
+          {report.credit_cost != null && report.status === "completed" && (
+            <span className="text-[11px] text-gray-400" title="Credits used">
+              {report.credit_cost} credits
             </span>
           )}
           <StatusPill status={report.status} />

@@ -13,6 +13,8 @@ export interface Report {
   input_tokens: number | null;
   output_tokens: number | null;
   cost_usd: number | null;
+  // Credits charged for this report (null for pre-credits reports).
+  credit_cost: number | null;
   archived: boolean;
   // Lightweight content stats for list/dashboard views.
   section_count: number;
