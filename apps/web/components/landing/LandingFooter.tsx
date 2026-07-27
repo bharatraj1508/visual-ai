@@ -98,7 +98,7 @@ export default function LandingFooter() {
               </svg>
             </a>
             <a
-              href="https://www.linkedin.com/in/bharatraj1508"
+              href="https://www.linkedin.com/in/bharat-raj-verma/"
               target="_blank"
               rel="noopener noreferrer"
               aria-label="LinkedIn"

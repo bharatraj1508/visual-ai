@@ -47,6 +47,13 @@ export default function CtaBand() {
             Log in
           </Link>
         </motion.div>
+        <motion.p
+          variants={fadeUp}
+          className="relative mt-5 text-sm text-white/75"
+        >
+          50 free credits on signup · no card required · pay with credits only
+          when you generate
+        </motion.p>
       </motion.div>
     </section>
   );

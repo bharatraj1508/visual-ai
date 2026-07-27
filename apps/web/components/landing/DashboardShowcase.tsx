@@ -6,8 +6,8 @@ import { fadeUp, reveal, stagger } from "./motion";
 
 const HIGHLIGHTS = [
   {
-    title: "Every rupee, visible",
-    body: "Total spend and per-report cost, tracked to the token. Reports run for fractions of a cent.",
+    title: "Every credit, visible",
+    body: "See the credits behind every report at a glance. A full multi-section report is about 10 credits.",
     icon: <CoinIcon />,
   },
   {
@@ -37,11 +37,11 @@ export default function DashboardShowcase() {
             variants={fadeUp}
             className="font-display text-3xl font-semibold tracking-tight text-ink sm:text-4xl"
           >
-            Every report, every rupee — one dashboard
+            Every report, every credit — one dashboard
           </motion.h2>
           <motion.p variants={fadeUp} className="mt-4 text-lg text-gray-500">
-            Datasets, generated reports, spend, and the charts you use most —
-            all in a single, calm view.
+            Datasets, generated reports, credits used, and the charts you use
+            most — all in a single, calm view.
           </motion.p>
         </motion.div>
 
@@ -62,7 +62,7 @@ export default function DashboardShowcase() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="/dashboard.png"
-            alt="The Visual AI dashboard: spend, reports, datasets and chart mix"
+            alt="The Visual AI dashboard: credits used, reports, datasets and chart mix"
             className="w-full"
             loading="lazy"
           />
