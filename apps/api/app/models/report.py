@@ -9,7 +9,7 @@ import enum
 import uuid
 
 from sqlalchemy import Boolean, Enum as SAEnum
-from sqlalchemy import Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Float, ForeignKey, Integer, String, Text, Uuid
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -20,6 +20,15 @@ class ReportStatus(str, enum.Enum):
     running = "running"
     completed = "completed"
     failed = "failed"
+
+
+class CreditState(str, enum.Enum):
+    """Where this report is in the reserve -> capture/release credit lifecycle."""
+
+    none = "none"          # not yet charged (created, not generated)
+    held = "held"          # credits reserved for an in-flight generation
+    captured = "captured"  # credits spent (generation completed)
+    released = "released"  # hold refunded (generation failed / cancelled)
 
 
 class Report(UUIDMixin, TimestampMixin, Base):
@@ -49,3 +58,15 @@ class Report(UUIDMixin, TimestampMixin, Base):
     archived: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default="false"
     )
+    # --- Credits ---------------------------------------------------------
+    # Cost quoted at creation (stable for this report). Null for reports made
+    # before credits existed — those generate without a charge.
+    credit_cost: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    credit_state: Mapped[CreditState] = mapped_column(
+        SAEnum(CreditState, name="reportcreditstate"),
+        default=CreditState.none,
+        nullable=False,
+        server_default=CreditState.none.value,
+    )
+    # The open report_hold ledger entry, while credits are reserved.
+    credit_hold_id: Mapped[uuid.UUID | None] = mapped_column(Uuid, nullable=True)

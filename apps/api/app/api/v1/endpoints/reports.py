@@ -23,18 +23,86 @@ from app.agent.streaming import friendly_error_detail
 from app.core.database import get_db
 from app.core.logging import logger
 from app.core.security import get_current_user
+from app.models.credit_balance import CreditBalance
 from app.models.dataset import Dataset, DatasetStatus
-from app.models.report import Report, ReportStatus
+from app.models.report import CreditState, Report, ReportStatus
 from app.models.report_suggestion import ReportSuggestion, SuggestionStatus
 from app.models.user import User
+from app.schemas.credits import EstimateResponse
 from app.schemas.report import (
     ReportCreate,
     ReportDetail,
     ReportRead,
     ReportUpdate,
 )
+from app.services import credits
 
 router = APIRouter()
+
+
+async def _available_credits(db: AsyncSession, user_id: uuid.UUID) -> int:
+    balance = await db.get(CreditBalance, user_id)
+    return balance.available if balance else 0
+
+
+async def _capture_if_held(db: AsyncSession, report: Report) -> None:
+    """Charge the reserved credits — call when a report reaches `completed`."""
+    if (
+        report.credit_cost
+        and report.credit_state == CreditState.held
+        and report.credit_hold_id is not None
+    ):
+        await credits.capture_credits(
+            db, report.user_id,
+            amount=report.credit_cost,
+            hold_id=report.credit_hold_id,
+            report_id=report.id,
+        )
+        report.credit_state = CreditState.captured
+        report.credit_hold_id = None
+        await db.commit()
+
+
+async def _release_if_held(db: AsyncSession, report: Report) -> None:
+    """Refund the reserved credits — call when generation fails/cancels."""
+    if (
+        report.credit_cost
+        and report.credit_state == CreditState.held
+        and report.credit_hold_id is not None
+    ):
+        await credits.release_credits(
+            db, report.user_id,
+            amount=report.credit_cost,
+            hold_id=report.credit_hold_id,
+            report_id=report.id,
+        )
+        report.credit_state = CreditState.released
+        report.credit_hold_id = None
+        await db.commit()
+
+
+@router.post("/estimate", response_model=EstimateResponse)
+async def estimate_cost(
+    payload: ReportCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Quote the credit cost for a report before the user commits to generating
+    it. The quote is what /reports then charges."""
+    dataset = await db.scalar(
+        select(Dataset).where(
+            Dataset.id == payload.dataset_id, Dataset.user_id == user.id
+        )
+    )
+    if dataset is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
+    cost = credits.estimate_report_cost(dataset)
+    available = await _available_credits(db, user.id)
+    return EstimateResponse(
+        cost=cost, balance=available, affordable=available >= cost
+    )
 
 
 async def _get_owned_report(
@@ -104,12 +172,27 @@ async def create_report(
             detail="Provide a goal or a suggestion_id.",
         )
 
+    # Quote the cost and soft-check the balance up front for a clean 402 (the
+    # hard, atomic reservation happens when generation actually starts).
+    cost = credits.estimate_report_cost(dataset)
+    available = await _available_credits(db, user.id)
+    if available < cost:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "message": "Not enough credits to generate this report.",
+                "needed": cost,
+                "available": available,
+            },
+        )
+
     report = Report(
         user_id=user.id,
         dataset_id=dataset.id,
         title=title or f"Report: {dataset.filename}",
         goal=goal,
         status=ReportStatus.running,
+        credit_cost=cost,
     )
     db.add(report)
     await db.commit()
@@ -147,12 +230,27 @@ async def regenerate_report(
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="Dataset is not available"
         )
+    # Regeneration reuses the same problem statement → charge a fraction of the
+    # original's cost (min 1). Fall back to a fresh estimate for legacy reports.
+    base_cost = source.credit_cost or credits.estimate_report_cost(dataset)
+    cost = credits.regen_cost(base_cost)
+    available = await _available_credits(db, user.id)
+    if available < cost:
+        raise HTTPException(
+            status_code=status.HTTP_402_PAYMENT_REQUIRED,
+            detail={
+                "message": "Not enough credits to regenerate this report.",
+                "needed": cost,
+                "available": available,
+            },
+        )
     new = Report(
         user_id=user.id,
         dataset_id=source.dataset_id,
         title=source.title,
         goal=source.goal,
         status=ReportStatus.running,
+        credit_cost=cost,
     )
     db.add(new)
     await db.commit()
@@ -238,6 +336,26 @@ async def stream_report(
             status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
         )
 
+    # CREDIT: reserve the quoted cost before any generation (atomic 402 gate).
+    # A fresh report is `none`; a retried-after-failure one is `released` — both
+    # need a (re-)hold. Legacy reports (credit_cost is None) generate free.
+    if report.credit_cost and report.credit_state in (
+        CreditState.none,
+        CreditState.released,
+    ):
+        try:
+            hold = await credits.reserve_credits(
+                db, user.id, report.credit_cost, report_id=report.id
+            )
+        except credits.InsufficientCreditsError:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail="Not enough credits to generate this report.",
+            )
+        report.credit_hold_id = hold.id
+        report.credit_state = CreditState.held
+        await db.commit()
+
     # Result cache: an identical goal on the same dataset produces an identical
     # report. Reuse a prior completed run's content instead of paying to
     # regenerate it — the biggest single saving on repeats. Skipped for explicit
@@ -262,6 +380,8 @@ async def stream_report(
         report.cost_usd = 0.0  # reused — no new inference spend
         report.error = None
         await db.commit()
+        # A cache hit still delivers a report to the user → charge the hold.
+        await _capture_if_held(db, report)
 
         async def replay_cached():
             yield {"event": "report_done",
@@ -308,6 +428,8 @@ async def stream_report(
             report.output_tokens = usage.output_tokens
             report.cost_usd = usage.cost_usd
             await db.commit()
+            # Generation succeeded → charge the reserved credits.
+            await _capture_if_held(db, report)
             yield {"event": "report_done",
                    "data": json.dumps({
                        "report_id": str(report.id),
@@ -322,6 +444,8 @@ async def stream_report(
             report.error = detail[:2048]
             report.content = sections or None
             await db.commit()
+            # We didn't deliver → auto-refund the reserved credits.
+            await _release_if_held(db, report)
             yield {"event": "error", "data": json.dumps({"detail": detail})}
 
     return EventSourceResponse(event_generator())
