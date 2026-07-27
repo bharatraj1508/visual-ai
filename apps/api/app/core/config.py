@@ -63,6 +63,69 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 1 day
 
+    # --- Email / verification ---------------------------------------------
+    # Provider backend for outbound transactional mail:
+    #   "console" — log the message + verification link (default; zero setup)
+    #   "smtp"    — send via SMTP (use Mailpit locally: host=localhost port=1025)
+    #   "resend"  — send via the Resend HTTP API (production)
+    EMAIL_PROVIDER: str = "console"
+    # Sender identity. EMAIL_FROM must be on a Resend-verified domain in prod.
+    EMAIL_FROM: str = "no-reply@visual-ai.local"
+    EMAIL_FROM_NAME: str = "Visual AI"
+    # Resend API key — required only when EMAIL_PROVIDER=resend.
+    RESEND_API_KEY: Optional[SecretStr] = None
+    # SMTP config — used only when EMAIL_PROVIDER=smtp (Mailpit dev defaults).
+    SMTP_HOST: str = "localhost"
+    SMTP_PORT: int = 1025
+    SMTP_USER: Optional[str] = None
+    SMTP_PASSWORD: Optional[SecretStr] = None
+    SMTP_USE_TLS: bool = False
+    # Public base URL of the Next.js frontend, used to build verification links.
+    FRONTEND_URL: str = "http://localhost:3000"
+    # How long an email-verification token stays valid.
+    EMAIL_VERIFICATION_TOKEN_TTL_HOURS: int = 24
+    # Minimum gap between resend-verification requests for one account (seconds).
+    EMAIL_VERIFICATION_RESEND_COOLDOWN_SECONDS: int = 60
+
+    # --- Credits / monetization ------------------------------------------
+    # Credits are pegged at ~1 credit ≈ ₹1 (see credit_packs pricing). At a
+    # serving cost of ~₹0.65/report this keeps reports cheap for users (~₹10)
+    # while retaining ~90%+ gross margin.
+    # Credits granted when a user verifies their email (~5 Standard reports).
+    SIGNUP_BONUS_CREDITS: int = 50
+    # Free/promo credits carry an expiry (shown in UI). NOTE: the auto-expiry
+    # sweeper is not yet implemented — this only stamps expires_at for display.
+    FREE_CREDIT_TTL_DAYS: int = 30
+    # Per-report credit cost by class. The current product generates one report
+    # type == "standard"; quick/deep are wired for a future depth selector.
+    REPORT_COST_QUICK: int = 5
+    REPORT_COST_STANDARD: int = 10
+    REPORT_COST_DEEP: int = 20
+    # Regeneration reuses the same problem statement, so it's cheaper: cost is
+    # original / this divisor, rounded, minimum 1 (e.g. 10 -> 3).
+    REPORT_REGEN_DIVISOR: int = 3
+    # Datasets at/above this row count cost the large-data multiplier.
+    LARGE_DATASET_ROW_THRESHOLD: int = 50_000
+    LARGE_DATASET_MULTIPLIER: float = 1.5
+
+    # --- Razorpay ---------------------------------------------------------
+    # Key id/secret + webhook-signing secret. Required only to purchase credits.
+    RAZORPAY_KEY_ID: Optional[str] = None
+    RAZORPAY_KEY_SECRET: Optional[SecretStr] = None
+    RAZORPAY_WEBHOOK_SECRET: Optional[SecretStr] = None
+    # Currency charged at checkout (credits are the in-app unit everywhere else).
+    CREDIT_CURRENCY: str = "inr"
+    # Where Razorpay returns the user after payment (payment-link callback).
+    PAYMENT_SUCCESS_URL: str = "http://localhost:3000/credits/success"
+    PAYMENT_CANCEL_URL: str = "http://localhost:3000/credits"
+
+    # Comma-separated emails allowed to call admin credit endpoints.
+    ADMIN_EMAILS: str = ""
+
+    @property
+    def admin_emails(self) -> set[str]:
+        return {e.strip().lower() for e in self.ADMIN_EMAILS.split(",") if e.strip()}
+
     # File storage root for uploaded CSVs and their Parquet cache.
     STORAGE_DIR: str = "storage"
 

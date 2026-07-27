@@ -161,6 +161,7 @@ def build_chart_spec(
     title: Optional[str] = None,
     x_label: Optional[str] = None,
     y_label: Optional[str] = None,
+    name_key: Optional[str] = None,
 ) -> dict:
     """Compile query rows + an encoding into a neutral ChartSpec.
 
@@ -197,6 +198,9 @@ def build_chart_spec(
         )
 
     if render == "scatter":
+        # `labelKey` names the per-point identity column (e.g. the player name)
+        # so the tooltip can say WHICH row a dot is, not just its x/y.
+        label_key = name_key if name_key and name_key in df.columns else None
         return {
             "type": chart_type,
             "render": "scatter",
@@ -209,6 +213,7 @@ def build_chart_spec(
             "yKey": y,
             "xLabel": x_label or x,
             "yLabel": y_label or y,
+            "labelKey": label_key,
         }
 
     if render == "pie":

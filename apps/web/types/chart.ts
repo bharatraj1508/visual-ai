@@ -24,4 +24,7 @@ export interface ChartSpec {
   yKey: string | null;
   xLabel: string | null;
   yLabel: string | null;
+  // Scatter only: the per-point identity column (e.g. player name) surfaced in
+  // the tooltip so a dot is identifiable, not just an (x, y) pair.
+  labelKey?: string | null;
 }

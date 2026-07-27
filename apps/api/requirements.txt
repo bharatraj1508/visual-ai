@@ -28,7 +28,12 @@ langchain-google-genai>=2.0.0        # Gemini via LangChain
 # --- Streaming ---
 sse-starlette>=2.1.0                 # Server-Sent Events for streaming agent steps
 
+# --- Email / HTTP ---
+httpx>=0.27.0                        # Resend transactional email API + test client
+
+# --- Payments ---
+razorpay>=1.4.0                      # Payment Links + webhook signature verification (India/UPI)
+
 # --- Testing ---
 pytest>=8.0.0
 pytest-asyncio>=0.23.0
-httpx>=0.27.0

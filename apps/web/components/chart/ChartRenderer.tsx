@@ -252,7 +252,11 @@ function renderScatter(
       />
       <YAxis type="number" dataKey={yKey} name={spec.yLabel ?? yKey} {...axisProps} width={48} />
       <ZAxis range={[50, 50]} />
-      <Tooltip {...tooltipStyle} cursor={{ strokeDasharray: "3 3" }} />
+      <Tooltip
+        {...tooltipStyle}
+        cursor={{ strokeDasharray: "3 3" }}
+        content={<ScatterTooltip spec={spec} />}
+      />
       {spec.seriesField && legend(toggle)}
       {groups.map((group, i) => {
         const key = group ?? "points";
@@ -274,6 +278,53 @@ function renderScatter(
         );
       })}
     </ScatterChart>
+  );
+}
+
+/** Scatter tooltip that names the point (labelKey, e.g. a player) above its
+ * x/y values, so you know WHICH row a dot is. */
+function ScatterTooltip({
+  spec,
+  active,
+  payload,
+}: {
+  spec: ChartSpec;
+  active?: boolean;
+  payload?: { payload: Record<string, unknown> }[];
+}) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0]?.payload ?? {};
+  const yKey = spec.yKey ?? "y";
+  const fmt = (v: unknown) =>
+    typeof v === "number"
+      ? Number.isInteger(v)
+        ? String(v)
+        : String(Number(v.toFixed(2)))
+      : String(v ?? "—");
+  const name = spec.labelKey ? row[spec.labelKey] : null;
+  return (
+    <div
+      style={{
+        borderRadius: 10,
+        border: "1px solid #E5E7EB",
+        boxShadow: "0 8px 24px -12px rgba(0,0,0,0.25)",
+        background: "#fff",
+        padding: "8px 10px",
+        fontSize: 12,
+      }}
+    >
+      {name != null && name !== "" && (
+        <div style={{ fontWeight: 600, marginBottom: 4, color: "#111827" }}>
+          {String(name)}
+        </div>
+      )}
+      <div style={{ color: "#6B7280" }}>
+        {(spec.xLabel ?? spec.xKey) as string} : {fmt(row[spec.xKey])}
+      </div>
+      <div style={{ color: "#6B7280" }}>
+        {(spec.yLabel ?? yKey) as string} : {fmt(row[yKey])}
+      </div>
+    </div>
   );
 }
 

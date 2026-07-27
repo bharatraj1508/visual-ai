@@ -6,6 +6,7 @@ import HowItWorks from "@/components/landing/HowItWorks";
 import LandingFooter from "@/components/landing/LandingFooter";
 import LandingNav from "@/components/landing/LandingNav";
 import LandingShell from "@/components/landing/LandingShell";
+import Pricing from "@/components/landing/Pricing";
 import ProblemStatement from "@/components/landing/ProblemStatement";
 import Showcase from "@/components/landing/Showcase";
 import Thesis from "@/components/landing/Thesis";
@@ -23,6 +24,7 @@ export default function Home() {
           <ProblemStatement />
           <DashboardShowcase />
           <ChartTypes />
+          <Pricing />
           <CtaBand />
         </main>
         <LandingFooter />

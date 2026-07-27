@@ -5,8 +5,8 @@
 ### Upload a CSV. Get a polished, chart-backed analytical report — no SQL, no Python, no prompt engineering.
 
 Visual AI reads your data, proposes the highest-value reports worth building, and writes each one as a
-multi-section narrative with interactive charts — grounded in exact, Python-computed numbers, and generated
-for **fractions of a cent**.
+multi-section narrative with interactive charts — grounded in exact, Python-computed numbers, and paid for
+with simple **credits**.
 
 </div>
 
@@ -21,7 +21,7 @@ You bring a spreadsheet; Visual AI does the analyst's job around it:
 1. **Understands your data** on upload — profiles every column, flags data-quality issues, and offers one-click cleaning.
 2. **Proposes the reports worth building** — five concrete, multi-column investigations tailored to *your* columns, not generic charts.
 3. **Writes the report** — a deterministic analysis engine computes the statistics; the AI selects what matters and writes the narrative. Numbers are exact by construction; charts can't be wrong.
-4. **Shows the cost** of every report, down to the token.
+4. **Runs on credits** — you always see the credit cost, and you only pay when you generate.
 
 The goal: eliminate the need to know Pandas, SQL, or prompt engineering to get a real answer from your data.
 
@@ -38,9 +38,11 @@ The goal: eliminate the need to know Pandas, SQL, or prompt engineering to get a
 | 🗂️ | **Problem statements & versions** | Every report belongs to one analytical question — a *problem statement*. Regenerate for fresh takes; all versions stack together, newest open, the rest a click away. |
 | ⬇️ | **PDF & ZIP export** | Download any report version as a polished PDF (charts included), or a whole problem statement's versions as a single ZIP. |
 | 🗄️ | **Archive, never delete** | Datasets and reports are archived (soft-deleted), never destroyed — restore any of them anytime from the archived view. |
-| 📋 | **Command-center dashboard** | Total spend, reports generated, rows analyzed, your chart mix, and a "worth a watch" featured report — at a glance. |
+| 📋 | **Command-center dashboard** | Credits used, reports generated, rows analyzed, your chart mix, and a "worth a watch" featured report — at a glance. |
 | 🧹 | **One-click data cleaning** | Detects messy types, placeholder nulls, duplicate rows, case-variant categories, and empty columns — cleans them non-destructively before reporting. |
-| 💸 | **Cost transparency** | Each report shows exactly what it cost to generate (~₹0.5 / **$0.006** per report) and the tokens used. |
+| 🔐 | **Accounts & email verification** | Sign up with a name + a few optional details (how you heard about us, purpose). A verification link activates the account and unlocks your free credits. |
+| 🎟️ | **Credits, not subscriptions** | Start with **50 free credits** (~5 reports). A full report costs ~10 credits; **regeneration is one-third**. No monthly bill — top up when you need to. |
+| 💳 | **UPI, cards & netbanking** | Buy credit packs through secure Razorpay checkout. The whole app speaks in **credits** — real currency appears only at checkout. |
 | ⚡ | **Live streaming** | Reports stream in section-by-section over SSE, so you watch them build. |
 
 ---
@@ -52,7 +54,7 @@ The goal: eliminate the need to know Pandas, SQL, or prompt engineering to get a
                                                                                     ├─ Executive summary
                                                                                     ├─ Analytical sections + charts
                                                                                     ├─ Recommendations
-                                                                                    ├─ Regenerate ─▶ new version (stacked)
+                                                                                    ├─ Regenerate ─▶ new version (⅓ the credits)
                                                                                     └─ Download ─▶ PDF · or ZIP all versions
 ```
 
@@ -60,15 +62,9 @@ The goal: eliminate the need to know Pandas, SQL, or prompt engineering to get a
 
 **2 · Analyze** — a cleaning recommendation appears if the data needs it, and generated reports sit alongside fresh AI suggestions.
 
-![Analyze panel](docs/screenshots/02-analyze-panel.png)
-
 **3 · Suggested reports** — five tailored investigations, each naming real columns and the chart types that would evidence them.
 
-![Suggested reports](docs/screenshots/05-suggestions.png)
-
-**4 · The report** — a written analysis with an executive summary, analytical sections, and recommendations. Regenerate to stack alternate takes as collapsible versions.
-
-![Report with versions](docs/screenshots/03-report-versions.png)
+**4 · The report** — a written analysis with an executive summary, analytical sections, and recommendations. Regenerate to stack alternate takes as collapsible versions (each regeneration costs one-third of the original).
 
 **5 · Charts that answer the question** — e.g. *Solo vs Lead streams by Country (top 15)* — the exact comparison the goal asked for.
 
@@ -78,36 +74,46 @@ The goal: eliminate the need to know Pandas, SQL, or prompt engineering to get a
 
 ## The dashboard
 
-Your command center: total spend, reports generated, rows analyzed, the chart types you use most, and a **"worth a watch"** featured report. Reports are grouped by **problem statement** — a `+N` badge shows how many versions each has — and every row has a download action (a **PDF** for a single report, a **ZIP** when there are multiple versions).
+Your command center: **credits used**, reports generated, rows analyzed, the chart types you use most, and a **"worth a watch"** featured report. Reports are grouped by **problem statement** — a `+N` badge shows how many versions each has — and every row shows the credits it used plus a download action (a **PDF** for a single report, a **ZIP** when there are multiple versions).
 
 ![Dashboard](docs/screenshots/06-dashboard.png)
 
 ---
 
+## Credits & payments
+
+Visual AI is **pay-as-you-go with credits** — no subscription.
+
+- **Free to start** — verify your email and get **50 credits** (~5 full reports), valid for 30 days.
+- **Transparent pricing** — a Standard report is ~10 credits; a **regeneration costs one-third** of the original (minimum 1). You always see the cost, and you're never charged if generation fails — credits are reserved when a report starts and **auto-refunded** on failure.
+- **Credit packs** — Starter (100), Analyst (350), Pro (900), Studio (2,600) — bigger packs include more bonus credits.
+- **Checkout** — powered by **Razorpay**, with **UPI**, cards, and netbanking. Currency appears *only* inside checkout; everywhere else in the app is credits.
+- **Immutable ledger** — every credit movement (signup bonus, purchase, report, refund, admin adjustment) is recorded in an append-only ledger; the balance is a derived, always-reconcilable cache.
+
+---
+
 ## Problem statements, versions & downloads
 
-A **problem statement** is a single analytical question you put to your data — e.g. *"Which country markets produce the highest solo-vs-lead streamers?"* Generate it once, then **regenerate** for a fresh take. Every version stacks under that one question (newest open, the rest collapsed), so you can compare angles instead of losing them.
+A **problem statement** is a single analytical question you put to your data — e.g. *"Which country markets produce the highest solo-vs-lead streamers?"* Generate it once, then **regenerate** for a fresh take (at one-third the credits). Every version stacks under that one question (newest open, the rest collapsed), so you can compare angles instead of losing them.
 
-- **Regenerate** — a new version each time, never overwriting the last.
+- **Regenerate** — a new version each time, never overwriting the last; costs ⅓ of the original.
 - **Download a version** — one polished PDF, charts included.
 - **Download all** — every version of a problem statement, zipped.
 - **Archive, never delete** — datasets and reports are soft-deleted and restorable; an Active/Archived toggle on the dashboard brings anything back.
 
-![Report versions with download](docs/screenshots/03-report-versions.png)
-
 ---
 
-## How it stays this cheap (and accurate)
+## How it stays accurate (and efficient)
 
 The core design principle: **the LLM is a writer and a selector — never a calculator or a controller.**
 
 Instead of an agent that loops, deciding which query to run next (expensive, and it re-sends its whole context every step), Visual AI does the reasoning in Python *before spending a token*:
 
 ```
- ┌─ Deterministic analysis battery (Pandas / DuckDB) ─ $0 ─┐
- │  correlations · segment & cohort comparisons · top-N    │
- │  leaderboards · A-vs-B by dimension · outliers · trends │──▶ ranked "findings" + ready charts
- └─────────────────────────────────────────────────────────┘
+ ┌─ Deterministic analysis battery (Pandas / DuckDB) ─ no LLM ─┐
+ │  correlations · segment & cohort comparisons · top-N        │
+ │  leaderboards · A-vs-B by dimension · outliers · trends     │──▶ ranked "findings" + ready charts
+ └─────────────────────────────────────────────────────────────┘
                                 │
         ┌───────────────────────┴───────────────────────┐
         ▼                                                ▼
@@ -120,7 +126,7 @@ Instead of an agent that loops, deciding which query to run next (expensive, and
                                              (prose only — no tools, no loops)
 ```
 
-The result: a typical report is **~1–2 orders of magnitude cheaper** than an agent-loop approach (**~$0.006 vs ~$0.13**), *and* higher quality — because the numbers are Python-exact, the charts are always valid, and a cheap semantic step keeps the report grounded in what the data actually means (real names vs id codes, per-entity vs per-event grain, meaningful groupings).
+The result: a typical report is **one to two orders of magnitude cheaper to run** than an agent-loop approach, *and* higher quality — because the numbers are Python-exact, the charts are always valid, and a cheap semantic step keeps the report grounded in what the data actually means (real names vs id codes, per-entity vs per-event grain, meaningful groupings). Those savings are exactly what let a report cost only a handful of credits.
 
 ---
 
@@ -134,7 +140,9 @@ The result: a typical report is **~1–2 orders of magnitude cheaper** than an a
 | State / data | Redux Toolkit + redux-persist, TanStack React Query v5, axios (Bearer interceptor) |
 | Backend | FastAPI, LangGraph + Google **Gemini** (`gemini-3.5-flash-lite`) |
 | Compute | **DuckDB** over **Parquet**, Pandas — all statistics run deterministically |
-| Storage | PostgreSQL (metadata), local disk / Parquet cache (data) |
+| Storage | PostgreSQL (metadata + credit ledger), local disk / Parquet cache (data) |
+| Payments | **Razorpay** (UPI / cards / netbanking) — Payment Links + signature-verified webhooks |
+| Email | Pluggable sender — console (dev), SMTP (Gmail / Mailpit), or Resend (prod) |
 | Streaming | Server-Sent Events (`sse-starlette`) |
 | Tooling | Turborepo, yarn workspaces, Alembic migrations, Prettier |
 
@@ -148,11 +156,14 @@ This is a **Turborepo** monorepo managed with **yarn workspaces**.
 visual-ai/
 ├── apps/
 │   ├── api/     # FastAPI + Gemini backend (Python)   — see apps/api/README.md
-│   │   └── app/agent/analysis.py   # the deterministic analysis battery
-│   │       app/agent/report.py     # spec → plan → streamed section writes
-│   │       app/services/preprocessing.py  # report-appropriate data cleaning
+│   │   └── app/agent/analysis.py     # the deterministic analysis battery
+│   │       app/agent/report.py       # spec → plan → streamed section writes
+│   │       app/services/credits.py   # ledger, balances, reserve → capture/release
+│   │       app/services/razorpay_service.py  # checkout + webhook (credit grants)
+│   │       app/services/verification.py      # email verification + signup bonus
 │   └── web/     # Next.js 14 frontend (TypeScript)
-│       └── app/dashboard/          # command-center dashboard
+│       └── app/dashboard/          # command-center dashboard (credits)
+│           app/credits/            # buy credits + purchase history
 │           app/reports/[reportId]/ # streamed report + versions + downloads
 │           utils/reportPdf.tsx     # client-side PDF / ZIP export
 ├── docs/screenshots/
@@ -186,7 +197,12 @@ yarn dev
 # web → http://localhost:3000    api → http://localhost:8000
 ```
 
-Then open **http://localhost:3000**, register, upload a CSV, and hit **Analyze**.
+Then open **http://localhost:3000**, register, verify your email, upload a CSV, and hit **Analyze**.
+
+**Optional integrations** (all have safe local defaults):
+
+- **Email** — defaults to `EMAIL_PROVIDER=console` (the verification link is printed to the API logs). Set `smtp` (Gmail/Mailpit) or `resend` to send real mail.
+- **Payments** — set `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET` to enable credit purchases. Without them, free credits and report generation still work; only checkout is disabled.
 
 ---
 

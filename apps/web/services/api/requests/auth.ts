@@ -16,6 +16,32 @@ export function useRegister() {
   });
 }
 
+export function useVerifyEmail() {
+  return useMutation({
+    async mutationFn(token: string) {
+      const { data } = await api.post<User>(
+        "/verify-email",
+        { token },
+        { baseURL },
+      );
+      return data;
+    },
+  });
+}
+
+export function useResendVerification() {
+  return useMutation({
+    async mutationFn(email: string) {
+      const { data } = await api.post<{ message: string }>(
+        "/resend-verification",
+        { email },
+        { baseURL },
+      );
+      return data;
+    },
+  });
+}
+
 export function useRequestLogin() {
   const login = useLogin();
   return useMutation({

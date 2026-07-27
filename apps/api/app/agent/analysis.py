@@ -264,6 +264,17 @@ class _Builder:
                              "spec": spec, "label": label}
         return cid
 
+    def _scatter_sample(self, xcol: str, ycol: str) -> tuple[list[dict], str | None]:
+        """Sampled (x, y) rows for a scatter, carrying the entity NAME as a
+        per-point label when the dataset has one — so a dot is identifiable
+        (which player/team/customer), not just a pair of numbers."""
+        label = self.entity if self.entity and self.entity in self.df.columns else None
+        cols = [xcol, ycol] + ([label] if label and label not in (xcol, ycol) else [])
+        d = self.df[cols].dropna(subset=[xcol, ycol])
+        if len(d) > _SCATTER_SAMPLE:
+            d = d.sample(_SCATTER_SAMPLE, random_state=0)
+        return d.to_dict("records"), label
+
     def _probe(self, name, fn) -> None:
         try:
             fn()
@@ -417,11 +428,9 @@ class _Builder:
                 return
             gap = d[actual] - d[expected]
             over, under = int((gap > 0).sum()), int((gap < 0).sum())
-            sample = d
-            if len(sample) > _SCATTER_SAMPLE:
-                sample = sample.sample(_SCATTER_SAMPLE, random_state=0)
+            rows, name_key = self._scatter_sample(actual, expected)
             cid = self._chart(f"{actual} vs {expected}", "scatter",
-                              sample.to_dict("records"), x=expected, y=actual,
+                              rows, x=expected, y=actual, name_key=name_key,
                               title=f"{actual} vs {expected} (above the line = overperforming)")
             self._add("performance",
                       f"Comparing '{actual}' against '{expected}': {over} records overperform and "
@@ -504,11 +513,9 @@ class _Builder:
                 if abs(r) >= _REDUNDANT_R:
                     continue  # duplicate/derived column — r≈1.00 is an artifact, not insight
                 kept += 1
-                sample = self.df[[a, b]].dropna()
-                if len(sample) > _SCATTER_SAMPLE:
-                    sample = sample.sample(_SCATTER_SAMPLE, random_state=0)
+                rows, name_key = self._scatter_sample(a, b)
                 cid = self._chart(f"{a} vs {b} (scatter)", "scatter",
-                                  sample.to_dict("records"), x=a, y=b, title=f"{a} vs {b}")
+                                  rows, x=a, y=b, name_key=name_key, title=f"{a} vs {b}")
                 direction = "positive" if r > 0 else "negative"
                 strength = "strong" if abs(r) >= 0.6 else "moderate"
                 self._add("correlation",

@@ -94,7 +94,7 @@ export default function Hero() {
             {[
               { icon: <FileIcon />, label: "PDF & ZIP export" },
               { icon: <SparkIcon />, label: "Interactive charts" },
-              { icon: <CoinIcon />, label: "~$0.006 / report" },
+              { icon: <CoinIcon />, label: "50 free credits to start" },
             ].map((chip) => (
               <span
                 key={chip.label}

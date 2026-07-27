@@ -11,6 +11,7 @@ const LINKS = [
   { label: "Problem statements", href: "#problem-statement" },
   { label: "Dashboard", href: "#dashboard" },
   { label: "Charts", href: "#charts" },
+  { label: "Pricing", href: "#pricing" },
 ];
 
 export default function LandingNav() {
