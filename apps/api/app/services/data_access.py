@@ -126,6 +126,35 @@ def value_counts(
     return {"column": column, "counts": _to_records(counts)}
 
 
+def query_tables(
+    tables: list[tuple[str, str | Path]], sql: str
+) -> "pd.DataFrame":
+    """Run a read-only SELECT across SEVERAL named tables and return the full frame.
+
+    Each ``(name, parquet_path)`` is registered as a DuckDB table, so the query
+    (e.g. an LLM-authored join that assembles a report's analysis view) can span
+    them. Same safety model as ``run_sql`` — single SELECT/WITH, external access
+    locked once tables are loaded. No row cap: the caller feeds the result into
+    the analysis battery. Raises ``QueryError`` on a rejected or failing query.
+    """
+    safe_sql = _validate_select(sql)
+    con = duckdb.connect(database=":memory:")
+    try:
+        for name, path in tables:
+            # names come from our own sanitizer ([a-z0-9_]); quote defensively.
+            con.execute(
+                f'CREATE TABLE "{name}" AS SELECT * FROM read_parquet(?)', [str(path)]
+            )
+        con.execute("SET enable_external_access=false")
+        con.execute("SET lock_configuration=true")
+        try:
+            return con.execute(safe_sql).df()
+        except duckdb.Error as exc:
+            raise QueryError(str(exc)) from exc
+    finally:
+        con.close()
+
+
 def correlate(
     parquet_path: str | Path,
     columns: list[str] | None = None,

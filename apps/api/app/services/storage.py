@@ -24,6 +24,16 @@ def original_path(user_id: uuid.UUID, dataset_id: uuid.UUID, filename: str) -> P
     return dataset_dir(user_id, dataset_id) / f"original__{safe}"
 
 
+def indexed_original_path(
+    user_id: uuid.UUID, dataset_id: uuid.UUID, index: int, filename: str
+) -> Path:
+    """Original-file path for one of several CSVs that form a single dataset.
+    The index prevents same-named uploads from clobbering one another; the layout
+    convention (the ``original__`` prefix, `Path(...).name` stripping) stays here."""
+    safe = Path(filename).name
+    return dataset_dir(user_id, dataset_id) / f"original__{index}__{safe}"
+
+
 def parquet_path(user_id: uuid.UUID, dataset_id: uuid.UUID) -> Path:
     return dataset_dir(user_id, dataset_id) / "data.parquet"
 

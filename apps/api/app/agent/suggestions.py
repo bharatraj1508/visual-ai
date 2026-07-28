@@ -13,6 +13,7 @@ import re
 
 from app.agent.context import DatasetContext
 from app.agent.graph import build_model
+from app.agent.signals import signal_digest
 from app.agent.tools.chart_spec import CHART_TYPES
 from app.core.config import settings
 from app.core.logging import logger
@@ -38,15 +39,22 @@ _EXAMPLE = (
     '"chart_types": ["grouped_bar", "scatter"]}'
 )
 
-# Schema first so the stable per-dataset prefix is cacheable; instructions are
-# tightened to the essentials — structured JSON output needs no verbose framing.
-_PROMPT = """{schema}
+# Schema (and the equally-stable signal digest) come first so the per-dataset
+# prefix stays cacheable; instructions are tightened to the essentials.
+#
+# The framing deliberately favours grounded questions over forced multi-column
+# ones: told to "always relate ≥2 columns" with no real signal, the model
+# manufactures hollow "compare A vs B" pairings. Given the signal digest, it can
+# instead build on relationships that actually exist.
+_PROMPT = """{schema}{signals}
 
-Propose the {count} highest-value analytical reports for THIS dataset. Each must \
-be a genuine investigation with a thesis that relates MULTIPLE columns (segment \
-cohorts and compare them, find drivers/correlates of an outcome, profile outliers, \
-or surface anomalies) — never a trivial one/two-column lookup, and each must name \
-at least two real columns. The {count} must be distinct angles, not rephrasings.
+Propose the {count} highest-value analytical reports for THIS dataset.{purpose} \
+Favour investigations grounded in the signals above — segment cohorts and compare \
+them, explain a correlation, profile outliers/extremes, or track a trend over time. \
+Relate multiple columns when the data supports it, but never force a weak pairing \
+just to look sophisticated: a sharp question about the columns that actually carry \
+signal beats a contrived one. The {count} must be distinct angles, not rephrasings, \
+and each must name at least two real columns.
 
 Each object: "title" (insight-oriented), "question" (names the columns and the \
 comparison), "rationale" (approach + expected insight, 1-2 sentences), \
@@ -57,13 +65,46 @@ Example: {example}
 Respond with ONLY a JSON array of exactly {count} such objects — no prose."""
 
 
-async def suggest_reports(ctx: DatasetContext, count: int = SUGGESTION_COUNT) -> list[dict]:
-    """Return `count` report ideas as dicts: title, question, rationale, chart_types."""
-    prompt = _PROMPT.format(
-        schema=ctx.schema_text(),
+def _build_prompt(
+    schema: str,
+    signals: str,
+    use_purpose: str | None,
+    count: int,
+    multi_table: bool = False,
+) -> str:
+    """Assemble the prompt, folding in the signal digest, the user's stated
+    purpose, and a cross-table nudge only when each applies."""
+    signals_block = f"\n\n{signals}" if signals else ""
+    purpose_line = (
+        f" The person analysing it describes their goal as: {use_purpose.strip()}."
+        if use_purpose and use_purpose.strip()
+        else ""
+    )
+    multi_line = (
+        " This dataset has several related tables (above); favour questions that "
+        "draw on more than one — joined on the shared columns — where doing so "
+        "yields a deeper answer than any single table could."
+        if multi_table
+        else ""
+    )
+    return _PROMPT.format(
+        schema=schema,
+        signals=signals_block,
+        purpose=purpose_line + multi_line,
         count=count,
         charts=_CHART_VOCAB,
         example=_EXAMPLE,
+    )
+
+
+async def suggest_reports(
+    ctx: DatasetContext,
+    count: int = SUGGESTION_COUNT,
+    use_purpose: str | None = None,
+) -> list[dict]:
+    """Return `count` report ideas as dicts: title, question, rationale, chart_types."""
+    prompt = _build_prompt(
+        ctx.schema_text(), signal_digest(ctx), use_purpose, count, ctx.is_multi()
     )
     try:
         # A little temperature for varied angles (0.5 is plenty); the output cap

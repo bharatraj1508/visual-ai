@@ -6,6 +6,7 @@ import uuid
 from fastapi import (
     APIRouter,
     Depends,
+    File,
     HTTPException,
     Request,
     UploadFile,
@@ -28,10 +29,14 @@ from app.services import ingestion, preprocessing, storage
 router = APIRouter()
 
 
+# A dataset may be split across several CSVs; cap how many we combine at once.
+_MAX_UPLOAD_FILES = 10
+
+
 def _too_large() -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-        detail=f"File exceeds the {settings.MAX_UPLOAD_MB} MB limit",
+        detail=f"Upload exceeds the {settings.MAX_UPLOAD_MB} MB limit",
     )
 
 
@@ -55,11 +60,27 @@ async def _get_owned_dataset(
 )
 async def upload_dataset(
     request: Request,
-    file: UploadFile,
+    files: list[UploadFile] = File(...),
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    if not (file.filename or "").lower().endswith(".csv"):
+    """Upload one CSV, or several that together form a single dataset.
+
+    Multiple files are clustered by schema (see ingestion.build_tables): files with
+    matching columns are stacked into one table, differently-shaped files each
+    become their own table. All tables are profiled and stored together, so
+    suggestions and reports can query across them. A single file behaves as before.
+    """
+    if not files:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="No file uploaded"
+        )
+    if len(files) > _MAX_UPLOAD_FILES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Upload at most {_MAX_UPLOAD_FILES} files at once",
+        )
+    if any(not (f.filename or "").lower().endswith(".csv") for f in files):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Only .csv files are supported",
@@ -72,14 +93,18 @@ async def upload_dataset(
     if declared and declared.isdigit() and int(declared) > settings.max_upload_bytes:
         raise _too_large()
 
-    contents = await file.read()
-    if len(contents) > settings.max_upload_bytes:
+    blobs = [await f.read() for f in files]
+    if sum(len(b) for b in blobs) > settings.max_upload_bytes:
         raise _too_large()
+
+    # A readable name for the combined dataset ("sales_jan.csv +1 more").
+    names = [f.filename or "upload.csv" for f in files]
+    display_name = names[0] if len(names) == 1 else f"{names[0]} +{len(names) - 1} more"
 
     # Create the dataset row first so we have an id for the storage path.
     dataset = Dataset(
         user_id=user.id,
-        filename=file.filename,
+        filename=display_name[:512],
         storage_path="",
         status=DatasetStatus.uploading,
     )
@@ -87,17 +112,27 @@ async def upload_dataset(
     await db.commit()
     await db.refresh(dataset)
 
-    csv_path = storage.original_path(user.id, dataset.id, file.filename)
-    csv_path.write_bytes(contents)
-    dataset.storage_path = str(csv_path)
+    # Persist each original untouched (kept as a backup even after cleaning). A
+    # per-file index keeps same-named uploads from clobbering each other.
+    dataset_dir = storage.dataset_dir(user.id, dataset.id)
+    named_paths: list[tuple[str, str]] = []
+    for i, (name, blob) in enumerate(zip(names, blobs)):
+        path = (
+            storage.indexed_original_path(user.id, dataset.id, i, name)
+            if len(files) > 1
+            else storage.original_path(user.id, dataset.id, name)
+        )
+        path.write_bytes(blob)
+        named_paths.append((name, str(path)))
+    dataset.storage_path = named_paths[0][1]
     dataset.status = DatasetStatus.profiling
     await db.commit()
 
-    parquet_out = storage.parquet_path(user.id, dataset.id)
     try:
-        # pandas is blocking — run off the event loop.
-        row_count, col_count, profiles = await asyncio.to_thread(
-            ingestion.ingest_csv, csv_path, parquet_out
+        # Cluster CSVs into one or more tables, clean + profile each. Blocking
+        # pandas work — run off the event loop.
+        tables_info, changes, preprocessed = await asyncio.to_thread(
+            ingestion.ingest_tables, named_paths, str(dataset_dir)
         )
     except Exception as exc:  # noqa: BLE001 — surface any parse/IO failure to the user
         logger.exception("Ingestion failed for dataset %s", dataset.id)
@@ -110,25 +145,31 @@ async def upload_dataset(
             detail=f"Could not process CSV: {exc}",
         )
 
-    dataset.parquet_path = str(parquet_out)
-    dataset.row_count = row_count
-    dataset.col_count = col_count
+    primary = tables_info[0]
+    dataset.parquet_path = primary["parquet_path"]
+    dataset.preprocessed = preprocessed
+    dataset.preprocessing_summary = changes or []
+    if len(tables_info) == 1:
+        # Single table — the legacy shape: no tables JSONB, counts from that table.
+        dataset.tables = None
+        dataset.row_count = primary["row_count"]
+        dataset.col_count = primary["col_count"]
+    else:
+        # Multiple tables queried together; totals span all of them.
+        dataset.tables = tables_info
+        dataset.row_count = sum(t["row_count"] for t in tables_info)
+        dataset.col_count = sum(t["col_count"] for t in tables_info)
     dataset.status = DatasetStatus.ready
+    # DatasetColumn rows hold the PRIMARY table (keeps the profile endpoint and
+    # single-table assumptions working); per-table columns live in tables JSONB.
     db.add_all(
-        [DatasetColumn(dataset_id=dataset.id, **p) for p in profiles]
+        [DatasetColumn(dataset_id=dataset.id, **p) for p in primary["columns"]]
     )
-    # Preview what data-cleaning would fix, so the analyze panel can recommend it.
-    # A failed audit must never block a successful upload.
-    try:
-        dataset.preprocessing_summary = (
-            await asyncio.to_thread(preprocessing.audit, str(parquet_out))
-        ) or None
-    except Exception:  # noqa: BLE001
-        logger.warning("Preprocess audit failed for dataset %s", dataset.id, exc_info=True)
     await db.commit()
     await db.refresh(dataset)
     logger.info(
-        "Dataset %s ready: %d rows x %d cols", dataset.id, row_count, col_count
+        "Dataset %s ready: %d rows x %d cols across %d table(s)",
+        dataset.id, dataset.row_count, dataset.col_count, len(tables_info),
     )
     return dataset
 
@@ -205,18 +246,9 @@ async def preprocess_dataset(
             status_code=status.HTTP_409_CONFLICT, detail="Dataset is not ready"
         )
 
-    def _run(path: str):
-        import pandas as pd
-
-        df = pd.read_parquet(path)
-        cleaned, changes = preprocessing.clean_dataframe(df)
-        ingestion.write_parquet(cleaned, path)  # overwrite the cache; CSV stays as backup
-        profiles = ingestion.profile_dataframe(cleaned)
-        return len(cleaned), cleaned.shape[1], profiles, changes
-
     try:
         row_count, col_count, profiles, changes = await asyncio.to_thread(
-            _run, dataset.parquet_path
+            preprocessing.apply_cleaning, dataset.parquet_path
         )
     except Exception as exc:  # noqa: BLE001
         logger.exception("Preprocessing failed for dataset %s", dataset.id)

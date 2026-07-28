@@ -42,6 +42,11 @@ _TOP_GROUPS = 15
 # A column with almost as many distinct values as rows is an identifier, not a
 # measure or a segment — never analyze it as one.
 _ID_RATIO = 0.9
+# Row-scope guardrails: a goal-derived sub-population is only honoured if it keeps
+# at least this many rows AND this fraction of the data — otherwise the analysis
+# fails open to the full dataset rather than reporting on a sliver.
+_MIN_SCOPE_ROWS = 5
+_MIN_SCOPE_FRAC = 0.10
 # Above this, a correlation is almost certainly two names for the same underlying
 # metric (a derived/duplicate column). Reporting r≈1.00 as an "insight" is noise.
 _REDUNDANT_R = 0.985
@@ -79,6 +84,10 @@ class Finding:
 class AnalysisResult:
     findings: list[Finding]
     charts: dict[str, dict]  # chart_id -> {id, kind, title, spec, label}
+    # Set when the battery restricted itself to a goal-relevant sub-population
+    # (e.g. "defenders and goalkeepers" for a goals-conceded goal); the report
+    # opens by declaring it. None means the whole dataset was analyzed.
+    scope_note: str | None = None
 
     def digest_text(self) -> str:
         lines = []
@@ -177,6 +186,10 @@ class _Builder:
         key = self.dedupe or self.entity
         if spec.get("entity_grain") and key and df[key].nunique(dropna=False) < len(df):
             df = self._collapse(df, key)
+        # Restrict to the goal-relevant sub-population (e.g. defensive roles for a
+        # goals-conceded goal) so comparisons aren't polluted by irrelevant groups.
+        # Fails open to the full frame if the scope is invalid or too aggressive.
+        df, self.scope_note = self._apply_scope(df, spec.get("scope"))
         self.df = df
         self.n = len(df)
 
@@ -231,6 +244,45 @@ class _Builder:
             return _MIN_SEGMENTS <= nun <= cap
 
         self.segment_cols = self._focus_first([c for c in seg_source if _seg_ok(c)])
+
+    def _apply_scope(
+        self, df: pd.DataFrame, scope: dict | None
+    ) -> tuple[pd.DataFrame, str | None]:
+        """Filter to the sub-population the goal is really about.
+
+        ``scope`` is ``{"column", "include": [values], "reason"}`` from the semantic
+        spec. Matching is case/whitespace-insensitive against the real values. The
+        filter is honoured ONLY when it keeps ≥ _MIN_SCOPE_ROWS and ≥ _MIN_SCOPE_FRAC
+        of the rows and actually removes some — otherwise we analyze everything and
+        return no note (a wrong scope must never yield an empty or misleading report).
+        Returns ``(frame, scope_note)``.
+        """
+        if not isinstance(scope, dict):
+            return df, None
+        col = scope.get("column")
+        include = scope.get("include") or []
+        if col not in df.columns or not include:
+            return df, None
+
+        total = len(df)
+        values = df[col].astype(str).str.strip()
+        want = {str(v).strip().lower() for v in include}
+        mask = values.str.lower().isin(want)
+        kept = int(mask.sum())
+        if kept == total or kept < max(_MIN_SCOPE_ROWS, int(_MIN_SCOPE_FRAC * total)):
+            logger.info(
+                "analysis scope on '%s' skipped (kept %d/%d rows)", col, kept, total
+            )
+            return df, None
+
+        shown = ", ".join(sorted({v for v in values[mask].unique()}))
+        reason = str(scope.get("reason", "")).strip().rstrip(".")
+        lead = f"This analysis focuses on {reason}" if reason else "This analysis is scoped"
+        note = (
+            f"{lead}: {kept:,} of {total:,} rows where {col} is {shown}. "
+            "All figures below describe that group."
+        )
+        return df[mask].copy(), note
 
     def _collapse(self, df: pd.DataFrame, key: str) -> pd.DataFrame:
         """One row per entity: numeric columns averaged, others take the first value."""
@@ -783,7 +835,7 @@ class _Builder:
         for f in ranked:
             if f.chart_id not in charts:
                 f.chart_id = None
-        return AnalysisResult(findings=ranked, charts=charts)
+        return AnalysisResult(findings=ranked, charts=charts, scope_note=self.scope_note)
 
 
 def _is_numeric(col: dict) -> bool:

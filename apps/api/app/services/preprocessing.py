@@ -127,6 +127,31 @@ def audit(parquet_path: str) -> list[dict]:
     return changes
 
 
+def apply_cleaning(parquet_path: str) -> tuple[int, int, list[dict], list[dict]]:
+    """Clean the Parquet in place and re-profile it.
+
+    Reads the cached Parquet, applies the safe fixes, overwrites the cache (the
+    original CSV is preserved elsewhere as backup), and re-profiles the cleaned
+    frame. Returns ``(row_count, col_count, column_profiles, changes)`` so the
+    caller can update the dataset row and its column profile in one shot. Shared
+    by upload (auto-clean) and the manual /preprocess endpoint so both take the
+    exact same path. Idempotent: re-running on already-clean data yields no
+    changes.
+    """
+    # Imported here rather than at module top to keep the dependency one-way
+    # (ingestion never imports preprocessing) and avoid a circular import.
+    from app.services import ingestion
+
+    df = pd.read_parquet(parquet_path)
+    cleaned, changes = clean_dataframe(df)
+    # Profile BEFORE overwriting the cache: if profiling somehow fails, the caller
+    # still sees the original Parquet + original profile (consistent), rather than
+    # a cleaned Parquet on disk paired with a stale profile in the database.
+    profiles = ingestion.profile_dataframe(cleaned)
+    ingestion.write_parquet(cleaned, parquet_path)
+    return len(cleaned), cleaned.shape[1], profiles, changes
+
+
 # --------------------------------------------------------------------------- #
 # helpers
 # --------------------------------------------------------------------------- #

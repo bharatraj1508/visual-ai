@@ -53,6 +53,13 @@ class Settings(BaseSettings):
     ANALYSIS_MAX_CHARTS: int = 14
     # Charts shown in any one report section — keeps them spread out, not piled up.
     REPORT_MAX_CHARTS_PER_SECTION: int = 3
+    # Signal digest that grounds report suggestions in real relationships (not just
+    # column names). Only relationships clearing these thresholds are surfaced, so
+    # weak/noisy pairs don't pollute the prompt. Caps bound the prompt size.
+    SIGNAL_CORRELATION_MIN: float = 0.4  # |Pearson r| a numeric pair must clear
+    SIGNAL_CONTRAST_MIN: float = 1.5  # max/min group-mean ratio a cat→numeric pair must clear
+    SIGNAL_SKEW_MIN: float = 2.0  # |skew| above which a numeric column is flagged outlier-heavy
+    SIGNAL_MAX_PER_KIND: int = 4  # top-N kept per signal kind (correlations, contrasts, …)
     # Token pricing (USD per 1M tokens) for the active model, used to cost each
     # report. Defaults match gemini-3.5-flash-lite; override if the model changes.
     GEMINI_INPUT_PRICE_PER_1M: float = 0.30
