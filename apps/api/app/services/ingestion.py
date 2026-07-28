@@ -7,16 +7,22 @@ deterministic querying by DuckDB/pandas.
 """
 from __future__ import annotations
 
+import re
 import warnings
 from pathlib import Path
 
 import pandas as pd
 from pandas.api import types as pdt
 
+from app.core.logging import logger
+
 # How many distinct sample values to keep per column for the LLM context.
 _MAX_SAMPLES = 5
 # object columns with distinct/total below this ratio are treated as categorical.
 _CATEGORICAL_RATIO = 0.5
+# Files whose columns overlap at least this much (Jaccard) are treated as the SAME
+# table split into parts and stacked; less overlap → they stay separate tables.
+_STACK_OVERLAP = 0.6
 
 
 def load_csv(path: str | Path) -> pd.DataFrame:
@@ -106,13 +112,97 @@ def profile_dataframe(df: pd.DataFrame) -> list[dict]:
     return profiles
 
 
-def ingest_csv(csv_path: str | Path, parquet_out: str | Path) -> tuple[int, int, list[dict]]:
-    """Blocking ingestion pipeline. Returns (row_count, col_count, column_profiles).
+def _table_name(filename: str, taken: set[str]) -> str:
+    """A safe, unique SQL identifier derived from a filename ('Sales Q1.csv' →
+    'sales_q1'), so each table can be referenced by name in DuckDB."""
+    stem = re.sub(r"[^a-z0-9]+", "_", Path(filename).stem.lower()).strip("_") or "table"
+    if stem[0].isdigit():
+        stem = f"t_{stem}"
+    name, i = stem, 2
+    while name in taken:
+        name, i = f"{stem}_{i}", i + 1
+    taken.add(name)
+    return name
 
-    Run this via asyncio.to_thread from the async endpoint so pandas doesn't
-    block the event loop.
+
+def _cluster_by_schema(
+    items: list[tuple[str, pd.DataFrame]],
+) -> list[list[tuple[str, pd.DataFrame]]]:
+    """Group files that are the SAME table split into parts (columns overlap ≥
+    _STACK_OVERLAP). Each group becomes one stacked table; distinct groups stay
+    separate tables. Never merges unrelated files."""
+    clusters: list[dict] = []
+    for name, df in items:
+        cols = set(df.columns)
+        for cl in clusters:
+            union = cols | cl["cols"]
+            if union and len(cols & cl["cols"]) / len(union) >= _STACK_OVERLAP:
+                cl["items"].append((name, df))
+                cl["cols"] |= cols
+                break
+        else:
+            clusters.append({"cols": set(cols), "items": [(name, df)]})
+    return [cl["items"] for cl in clusters]
+
+
+def build_tables(items: list[tuple[str, pd.DataFrame]]) -> list[dict]:
+    """Turn uploaded CSVs into one or more dataset TABLES — never rejecting.
+
+    Files sharing a schema are stacked into one table (a dataset split into
+    parts); differently-shaped files each become their own table, to be queried
+    together downstream. Returns ``[{name, filename, df}]``.
     """
-    df = load_csv(csv_path)
-    write_parquet(df, parquet_out)
-    profiles = profile_dataframe(df)
-    return len(df), df.shape[1], profiles
+    taken: set[str] = set()
+    tables: list[dict] = []
+    for group in _cluster_by_schema(items):
+        dfs = [df for _, df in group]
+        df = dfs[0] if len(dfs) == 1 else pd.concat(dfs, ignore_index=True)
+        first = group[0][0]
+        filename = first if len(group) == 1 else f"{first} +{len(group) - 1} more"
+        tables.append({"name": _table_name(first, taken), "filename": filename, "df": df})
+    return tables
+
+
+def ingest_tables(
+    named_paths: list[tuple[str, str | Path]], dataset_dir: str | Path
+) -> tuple[list[dict], list[dict], bool]:
+    """Blocking pipeline for one or more CSVs that form a dataset.
+
+    Clusters the files into tables (see ``build_tables``), writes each as its own
+    Parquet, applies the safe cleaning pass, and profiles the cleaned result.
+    Returns ``(tables_info, changes, preprocessed)`` where each table_info is
+    ``{name, filename, parquet_path, row_count, col_count, columns}``. A single
+    table is written to ``data.parquet`` — the legacy layout — so single-CSV
+    datasets are byte-for-byte unchanged. Run via asyncio.to_thread.
+    """
+    # Lazy import keeps the module dependency one-way (preprocessing imports
+    # ingestion at module load, not the reverse).
+    from app.services import preprocessing
+
+    tables = build_tables([(name, load_csv(path)) for name, path in named_paths])
+    single = len(tables) == 1
+    dataset_dir = Path(dataset_dir)
+    out: list[dict] = []
+    changes: list[dict] = []
+    preprocessed = True
+    for i, t in enumerate(tables):
+        path = dataset_dir / ("data.parquet" if single else f"table__{i}__{t['name']}.parquet")
+        write_parquet(t["df"], path)
+        try:
+            rows, cols, profiles, chg = preprocessing.apply_cleaning(str(path))
+            changes.extend(chg)
+        except Exception:  # noqa: BLE001 — cleaning is best-effort; keep the raw table
+            logger.warning("Cleaning failed for table %s; keeping raw.", t["name"], exc_info=True)
+            rows, cols, profiles = len(t["df"]), t["df"].shape[1], profile_dataframe(t["df"])
+            preprocessed = False
+        out.append({
+            "name": t["name"],
+            "filename": t["filename"],
+            "parquet_path": str(path),
+            "row_count": rows,
+            "col_count": cols,
+            "columns": profiles,
+        })
+    if not single:
+        logger.info("Ingested %d tables for dataset dir %s", len(out), dataset_dir)
+    return out, changes, preprocessed

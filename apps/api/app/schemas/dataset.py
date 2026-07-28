@@ -30,6 +30,21 @@ class PreprocessChange(BaseModel):
     detail: str
 
 
+class DatasetTableSummary(BaseModel):
+    """One table within a (possibly multi-CSV) dataset, without its columns."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    name: str
+    filename: str
+    row_count: int | None = None
+    col_count: int | None = None
+
+
+class DatasetTableProfile(DatasetTableSummary):
+    columns: list[DatasetColumnRead] = []
+
+
 class DatasetRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -45,9 +60,13 @@ class DatasetRead(BaseModel):
     # At ingest: what cleaning WOULD do (drives the recommendation card).
     # After preprocessing: what was applied.
     preprocessing_summary: list[PreprocessChange] | None = None
+    # Per-table summary when the dataset spans multiple CSVs; None for single-table.
+    tables: list[DatasetTableSummary] | None = None
 
 
 class DatasetProfile(DatasetRead):
     """Full profile: dataset metadata plus the per-column summary."""
 
     columns: list[DatasetColumnRead]
+    # Full per-table profiles (with columns) for multi-table datasets.
+    tables: list[DatasetTableProfile] | None = None

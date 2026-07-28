@@ -49,6 +49,10 @@ class Dataset(UUIDMixin, TimestampMixin, Base):
         Boolean, default=False, nullable=False, server_default="false"
     )
     preprocessing_summary: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # Multi-table datasets: one entry per table (name, filename, parquet_path,
+    # row_count, col_count, columns). NULL means a single-table dataset — the
+    # legacy shape, described by parquet_path + the DatasetColumn rows.
+    tables: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     # Soft delete: archived datasets are hidden by default but can be restored.
     archived: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default="false"

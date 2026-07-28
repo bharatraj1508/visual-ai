@@ -60,7 +60,7 @@ async def _generate_and_store(
     dataset: Dataset, user: User, db: AsyncSession
 ) -> list[ReportSuggestion]:
     ctx = DatasetContext.from_models(dataset, dataset.columns)
-    ideas = await suggest_reports(ctx)
+    ideas = await suggest_reports(ctx, use_purpose=user.use_purpose)
     rows = [
         ReportSuggestion(
             user_id=user.id,

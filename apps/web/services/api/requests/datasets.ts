@@ -47,9 +47,11 @@ export function useDatasetProfile(id: string) {
 export function useUploadDataset() {
   const queryClient = useQueryClient();
   return useMutation({
-    async mutationFn(file: File) {
+    async mutationFn(files: File[]) {
+      // Multiple files are combined server-side into one dataset. A single file
+      // still works — it's just a one-element list.
       const form = new FormData();
-      form.append("file", file);
+      for (const file of files) form.append("files", file);
       const { data } = await api.post<Dataset>("", form, { baseURL });
       return data;
     },
