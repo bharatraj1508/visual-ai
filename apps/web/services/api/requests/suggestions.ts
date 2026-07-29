@@ -49,6 +49,31 @@ export function useRegenerateSuggestions(datasetId: string) {
   });
 }
 
+/**
+ * Turns the user's own question into a suggestion card. The backend validates
+ * it against the dataset's columns first — a 422 means it was rejected and the
+ * response `detail` carries a user-facing reason to show inline.
+ */
+export function useCreateCustomSuggestion(datasetId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    async mutationFn(prompt: string) {
+      const { data } = await api.post<ReportSuggestion>(
+        `/datasets/${datasetId}/suggestions/custom`,
+        { prompt },
+        { baseURL },
+      );
+      return data;
+    },
+    onSuccess(suggestion) {
+      queryClient.setQueryData<ReportSuggestion[]>(
+        [SuggestionQueryKey.Suggestions, datasetId],
+        (prev) => (prev ? [...prev, suggestion] : [suggestion]),
+      );
+    },
+  });
+}
+
 export function useDismissSuggestion(datasetId: string) {
   const queryClient = useQueryClient();
   return useMutation({

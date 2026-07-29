@@ -45,6 +45,41 @@ def test_unrelated_files_are_not_rejected():
     assert len(tables) == 2  # kept as two tables, never raised
 
 
+def test_folder_paths_from_zip_members_distinguish_table_names():
+    # Same filename in different folders (as extracted from a ZIP) — different
+    # schemas, so they stay separate tables named after their folders.
+    players = pd.DataFrame({"player": ["A"], "goals": [3]})
+    teams = pd.DataFrame({"team": ["X"], "points": [50]})
+    tables = ingestion.build_tables(
+        _named(**{"2024/stats.csv": players, "teams/stats.csv": teams})
+    )
+    assert {t["name"] for t in tables} == {"t_2024_stats", "teams_stats"}
+
+
+def test_ingest_rejects_too_many_distinct_tables(tmp_path, monkeypatch):
+    # The cap is env-tunable (settings.MAX_DATASET_TABLES) and applies to the
+    # CLUSTERED table count, so many same-schema files never trip it.
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "MAX_DATASET_TABLES", 2)
+    paths = []
+    for i in range(3):  # three distinct schemas → three tables > cap of 2
+        p = tmp_path / f"t{i}.csv"
+        p.write_text(f"col_{i}\n1\n")
+        paths.append((f"t{i}.csv", str(p)))
+    with pytest.raises(ingestion.TooManyTablesError, match="limit is 2"):
+        ingestion.ingest_tables(paths, str(tmp_path))
+
+    # Same schema across many files clusters into ONE table — no rejection.
+    same = []
+    for i in range(5):
+        p = tmp_path / f"part{i}.csv"
+        p.write_text("region,rev\nW,1\n")
+        same.append((f"part{i}.csv", str(p)))
+    tables_info, _, _ = ingestion.ingest_tables(same, str(tmp_path))
+    assert len(tables_info) == 1
+
+
 def test_table_names_are_sql_safe_and_unique():
     a = pd.DataFrame({"x": [1]})
     b = pd.DataFrame({"y": [2]})  # different schema → separate table, same stem clash

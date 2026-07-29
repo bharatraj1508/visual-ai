@@ -19,6 +19,10 @@ export interface Dataset {
   status: DatasetStatus;
   row_count: number | null;
   col_count: number | null;
+  // Ingestion summary: CSV files the dataset was built from (ZIPs expanded)
+  // and the total size of its Parquet tables. null on older datasets.
+  source_file_count: number | null;
+  size_bytes: number | null;
   error: string | null;
   created_at: string;
   archived: boolean;

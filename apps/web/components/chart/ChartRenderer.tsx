@@ -79,7 +79,7 @@ export default function ChartRenderer({
 
   const animate = !print;
   return (
-    <figure className="rounded-xl border border-gray-200 bg-white p-4">
+    <figure className="w-full rounded-xl border border-gray-200 bg-white p-3 sm:p-4">
       {spec.title && (
         <figcaption className="mb-3 text-sm font-medium text-gray-700">
           {spec.title}

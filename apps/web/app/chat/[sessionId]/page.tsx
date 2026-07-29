@@ -43,7 +43,7 @@ function Bubble({
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-2xl space-y-3 rounded-lg px-4 py-3 text-sm ${
+        className={`min-w-0 max-w-[85%] space-y-3 break-words rounded-lg px-4 py-3 text-sm sm:max-w-2xl ${
           isUser ? "bg-primary text-white" : "bg-white border border-gray-200"
         }`}
       >
@@ -127,7 +127,7 @@ export default function ChatPage() {
   return (
     <div className="flex h-screen flex-col">
       <AppHeader />
-      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-hidden px-4">
+      <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col overflow-hidden px-4 sm:px-6">
         <div className="flex-1 space-y-4 overflow-y-auto py-6">
           {messages?.map((message) => (
             <Bubble
@@ -179,12 +179,12 @@ export default function ChatPage() {
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
             placeholder="Ask about your data…"
-            className="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
+            className="min-w-0 flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm"
           />
           <button
             type="submit"
             disabled={streaming}
-            className="flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
+            className="flex shrink-0 items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-white disabled:opacity-60"
           >
             {streaming && <Spinner />} Send
           </button>

@@ -53,6 +53,10 @@ class DatasetRead(BaseModel):
     status: DatasetStatus
     row_count: int | None
     col_count: int | None
+    # Ingestion summary: CSV files the dataset was built from (ZIPs expanded)
+    # and the total size of its Parquet tables. None on older datasets.
+    source_file_count: int | None = None
+    size_bytes: int | None = None
     error: str | None
     created_at: datetime
     archived: bool = False

@@ -186,7 +186,7 @@ yarn install
 cd apps/api
 python3 -m venv .venv && .venv/bin/python -m pip install -r requirements.txt
 cp .env.example .env            # set GOOGLE_API_KEY + SECRET_KEY
-cd ../.. && docker compose up -d db
+cd ../.. && docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
 cd apps/api && .venv/bin/alembic upgrade head && cd ../..
 
 # 3. Frontend env
@@ -203,6 +203,52 @@ Then open **http://localhost:3000**, register, verify your email, upload a CSV, 
 
 - **Email** — defaults to `EMAIL_PROVIDER=console` (the verification link is printed to the API logs). Set `smtp` (Gmail/Mailpit) or `resend` to send real mail.
 - **Payments** — set `RAZORPAY_KEY_ID` / `RAZORPAY_KEY_SECRET` / `RAZORPAY_WEBHOOK_SECRET` to enable credit purchases. Without them, free credits and report generation still work; only checkout is disabled.
+
+---
+
+## Run with Docker (full stack)
+
+Everything (API + web + migrations) runs in containers. Two overlays sit on top
+of the shared `docker-compose.yml`:
+
+| File | Adds |
+|------|------|
+| `docker-compose.dev.yml` | a throwaway local **Postgres** + **Adminer**, wires the API to it |
+| `docker-compose.prod.yml` | joins the VPS's **existing external Postgres network**, binds ports to `127.0.0.1` for a reverse proxy |
+
+**One-time setup** — two env files:
+
+```bash
+cp .env.example .env                  # infra/compose vars (ports, local DB, NEXT_PUBLIC_*)
+cp apps/api/.env.example apps/api/.env # API app config (GOOGLE_API_KEY, SECRET_KEY, email, razorpay, ...)
+```
+
+### Local
+
+```bash
+yarn docker:dev                       # build + start api, web, postgres, adminer
+yarn docker:migrate:dev               # run Alembic migrations (first run + after schema changes)
+# web → http://localhost:3000   api → http://localhost:8000   adminer → http://localhost:8080
+```
+
+### VPS (production)
+
+The VPS already runs a shared Postgres on its own docker network, so no DB
+container is started. In the root `.env` set:
+
+- `DATABASE_URL` — async URL for that Postgres (`postgresql+asyncpg://user:pass@<pg-host>:5432/visual_ai`)
+- `POSTGRES_NETWORK` — the network name that Postgres is on (`docker network ls`)
+- `NEXT_PUBLIC_BASE_API_URL` — the public API URL your reverse proxy serves (e.g. `https://api.your-domain.com/api/v1`)
+
+Then:
+
+```bash
+yarn docker:migrate:prod              # apply migrations against the external DB
+yarn docker:prod                      # build + start api + web (detached, bound to 127.0.0.1)
+```
+
+Point Caddy/nginx at `127.0.0.1:3000` (web) and `127.0.0.1:8000` (api). Uploaded
+CSVs + the Parquet cache persist in the `api_storage` named volume.
 
 ---
 

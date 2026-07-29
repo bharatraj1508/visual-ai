@@ -1,33 +1,66 @@
+# Base stack — shared by local dev and VPS prod. Never run this file alone;
+# always layer an override on top:
+#
+#   local dev :  docker compose -f docker-compose.yml -f docker-compose.dev.yml  up
+#   VPS prod  :  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# (or use the `docker:dev` / `docker:prod` scripts in package.json)
+#
+# Postgres is intentionally NOT defined here: dev spins up a local one, prod
+# uses the shared external DB on the VPS network.
 services:
+  # FastAPI backend
   api:
     build:
       context: ./apps/api
-    container_name: fastapi_api
-    ports:
-      - "8000:8000"
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/visual_ai
-      - ENV=development
-    depends_on:
-      db:
-        condition: service_healthy
-
-  db:
-    image: postgres:16-alpine
-    container_name: postgres_db
-    ports:
-      - "5433:5432"
-    environment:
-      - POSTGRES_USER=postgres
-      - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=visual_ai
+    image: visual-ai-api:latest
+    container_name: visual_ai_api
+    restart: unless-stopped
+    # App config (secrets, LLM keys, email, razorpay, CORS, ...) comes from the
+    # API's own env file. DATABASE_URL and ENV are overridden per environment
+    # by the dev/prod files (compose `environment` beats `env_file`).
+    env_file:
+      - ./apps/api/.env
     volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d visual_ai"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      # Uploaded CSVs + Parquet cache (STORAGE_DIR=storage -> /app/storage).
+      - api_storage:/app/storage
+    ports:
+      - "${API_HOST_PORT:-8000}:8000"
+
+  # One-shot Alembic migration runner. Not started by `up`; invoke explicitly:
+  #   docker compose -f ... -f ... --profile migrate run --rm migrate
+  # Shares the api image; the second build is a full cache hit.
+  migrate:
+    build:
+      context: ./apps/api
+    image: visual-ai-api:latest
+    container_name: visual_ai_migrate
+    profiles: ["migrate"]
+    restart: "no"
+    env_file:
+      - ./apps/api/.env
+    command: ["alembic", "upgrade", "head"]
+
+  # Next.js frontend (standalone build)
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # NEXT_PUBLIC_* are baked into the client bundle at build time.
+        NEXT_PUBLIC_BASE_API_URL: ${NEXT_PUBLIC_BASE_API_URL:-http://localhost:8000/api/v1}
+        NEXT_PUBLIC_MAX_UPLOAD_MB: ${NEXT_PUBLIC_MAX_UPLOAD_MB:-50}
+        NEXT_PUBLIC_USD_TO_INR: ${NEXT_PUBLIC_USD_TO_INR:-88}
+    image: visual-ai-web:latest
+    container_name: visual_ai_web
+    restart: unless-stopped
+    environment:
+      - PORT=3000
+      - HOSTNAME=0.0.0.0
+    ports:
+      - "${WEB_HOST_PORT:-3000}:3000"
+    depends_on:
+      - api
 
 volumes:
-  postgres_data:
+  api_storage:

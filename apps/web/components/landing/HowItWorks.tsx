@@ -3,6 +3,7 @@
 import { motion } from "framer-motion";
 
 import { fadeUp, reveal, stagger } from "./motion";
+import Chart3D from "./three/Chart3D";
 
 const STEPS = [
   {
@@ -114,23 +115,6 @@ function SuggestArt() {
 }
 
 function ReportArt() {
-  const bars = [40, 68, 52, 84, 60];
-  return (
-    <div className="flex h-20 items-end gap-2">
-      {bars.map((h, i) => (
-        <motion.div
-          key={i}
-          initial={{ height: 0 }}
-          whileInView={{ height: `${h}%` }}
-          viewport={{ once: true }}
-          transition={{ delay: i * 0.1, duration: 0.6, ease: "easeOut" }}
-          className="w-4 rounded-t-sm"
-          style={{
-            backgroundColor: i % 2 === 0 ? "#FB676E" : "#2DD4BF",
-            minHeight: 8,
-          }}
-        />
-      ))}
-    </div>
-  );
+  // The report's chart, rendered as a live 3D model like the rest of the page.
+  return <Chart3D kind="area" className="h-full w-full" />;
 }

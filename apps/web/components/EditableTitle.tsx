@@ -66,8 +66,8 @@ export default function EditableTitle({
   }
 
   return (
-    <span className="group/title inline-flex items-center gap-2">
-      <Tag className={className}>{value}</Tag>
+    <span className="group/title inline-flex min-w-0 max-w-full items-center gap-2">
+      <Tag className={`min-w-0 truncate ${className}`}>{value}</Tag>
       {saving ? (
         <Spinner className="text-gray-400" />
       ) : (

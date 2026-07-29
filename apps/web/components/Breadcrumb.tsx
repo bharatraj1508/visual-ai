@@ -13,17 +13,19 @@ export default function Breadcrumb({ items }: { items: Crumb[] }) {
         {items.map((item, i) => {
           const last = i === items.length - 1;
           return (
-            <li key={i} className="flex items-center gap-1.5">
+            <li key={i} className="flex min-w-0 items-center gap-1.5">
               {item.href && !last ? (
                 <Link
                   href={item.href}
-                  className="transition-colors hover:text-primary"
+                  className="max-w-[10rem] truncate transition-colors hover:text-primary sm:max-w-xs"
                 >
                   {item.label}
                 </Link>
               ) : (
                 <span
-                  className={last ? "font-medium text-gray-900" : undefined}
+                  className={`max-w-[10rem] truncate sm:max-w-xs ${
+                    last ? "font-medium text-gray-900" : ""
+                  }`}
                   aria-current={last ? "page" : undefined}
                 >
                   {item.label}

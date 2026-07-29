@@ -1,0 +1,55 @@
+# Local dev override. Adds a throwaway Postgres + Adminer and points the API at
+# it. On the VPS we use the shared external DB instead (see prod override).
+#
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+services:
+  # Local PostgreSQL — dev only.
+  postgres:
+    image: postgres:16-alpine
+    container_name: visual_ai_postgres
+    restart: unless-stopped
+    environment:
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-visual_ai}
+    ports:
+      # 5433 on the host to avoid clashing with a native Postgres on 5432.
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-visual_ai}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Lightweight DB browser at http://localhost:8080 — dev only.
+  adminer:
+    image: adminer:latest
+    container_name: visual_ai_adminer
+    restart: unless-stopped
+    ports:
+      - "${ADMINER_HOST_PORT:-8080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    environment:
+      - ENV=development
+      # Talk to the compose `postgres` service (internal port 5432), overriding
+      # whatever DATABASE_URL is in apps/api/.env.
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-visual_ai}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  migrate:
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-visual_ai}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

@@ -1,0 +1,28 @@
+# Root context is used by the web build. Keep it lean and never ship secrets.
+**/node_modules
+**/.next
+**/out
+**/dist
+.turbo
+**/.turbo
+.git
+.gitignore
+
+# Python artifacts (api context has its own .dockerignore too)
+**/__pycache__
+**/*.pyc
+**/.venv
+**/.pytest_cache
+**/.mypy_cache
+
+# User data + local env / secrets
+**/storage
+**/.env
+**/.env.*
+!**/.env.example
+
+# Editor / OS
+.vscode
+.idea
+**/.DS_Store
+*.tsbuildinfo

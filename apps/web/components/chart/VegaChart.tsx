@@ -14,7 +14,7 @@ export default function VegaChart({
   spec: Record<string, unknown>;
 }) {
   return (
-    <div className="w-full overflow-x-auto rounded-md border border-gray-200 bg-white p-3">
+    <div className="w-full overflow-x-auto rounded-md border border-gray-200 bg-white p-2 sm:p-3">
       <VegaLite spec={spec as any} actions={false} />
     </div>
   );

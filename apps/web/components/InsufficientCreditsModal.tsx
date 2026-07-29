@@ -25,7 +25,7 @@ export default function InsufficientCreditsModal({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-xl"
+        className="mx-auto w-[calc(100%-2rem)] max-w-sm rounded-2xl bg-white p-6 text-center shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-amber-50 text-amber-500">
@@ -42,7 +42,7 @@ export default function InsufficientCreditsModal({
             ? `This report needs ${needed} credits and you have ${available}. Top up to keep generating.`
             : "Top up your credits to keep generating reports."}
         </p>
-        <div className="mt-5 flex gap-3">
+        <div className="mt-5 flex flex-col gap-3 sm:flex-row">
           <button
             onClick={onClose}
             className="flex-1 rounded-lg border border-gray-300 py-2.5 text-sm font-medium text-gray-700 hover:bg-gray-50"

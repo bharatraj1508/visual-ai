@@ -1,7 +1,8 @@
-"""Dataset endpoints: upload a CSV (profiled synchronously for small data),
-list/get datasets, fetch the column profile, and delete."""
+"""Dataset endpoints: upload CSVs or a ZIP of them (profiled synchronously for
+small data), list/get datasets, fetch the column profile, and delete."""
 import asyncio
 import uuid
+from pathlib import Path
 
 from fastapi import (
     APIRouter,
@@ -24,12 +25,13 @@ from app.models.dataset import Dataset, DatasetStatus
 from app.models.dataset_column import DatasetColumn
 from app.models.user import User
 from app.schemas.dataset import DatasetProfile, DatasetRead, DatasetUpdate
-from app.services import ingestion, preprocessing, storage
+from app.services import archive, ingestion, preprocessing, storage
 
 router = APIRouter()
 
 
-# A dataset may be split across several CSVs; cap how many we combine at once.
+# Cap on individually-picked files per upload (a ZIP counts as one file; its
+# contents are bounded by settings.MAX_CSV_FILES instead).
 _MAX_UPLOAD_FILES = 10
 
 
@@ -64,12 +66,15 @@ async def upload_dataset(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    """Upload one CSV, or several that together form a single dataset.
+    """Upload CSVs — or a ZIP of them — that together form a single dataset.
 
-    Multiple files are clustered by schema (see ingestion.build_tables): files with
-    matching columns are stacked into one table, differently-shaped files each
-    become their own table. All tables are profiled and stored together, so
-    suggestions and reports can query across them. A single file behaves as before.
+    A ZIP may hold a whole folder tree; every CSV inside becomes part of the
+    dataset, and its folder path is kept in the table name so the AI can lean
+    on the structure. All files are clustered by schema (see
+    ingestion.build_tables): files with matching columns are stacked into one
+    table, differently-shaped files each become their own table. All tables are
+    profiled and stored together, so suggestions and reports can query across
+    them. A single CSV behaves as before.
     """
     if not files:
         raise HTTPException(
@@ -80,10 +85,12 @@ async def upload_dataset(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Upload at most {_MAX_UPLOAD_FILES} files at once",
         )
-    if any(not (f.filename or "").lower().endswith(".csv") for f in files):
+    if any(
+        not (f.filename or "").lower().endswith((".csv", ".zip")) for f in files
+    ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Only .csv files are supported",
+            detail="Only .csv and .zip files are supported",
         )
 
     # Fail fast on the declared body size before buffering the upload. The
@@ -97,8 +104,40 @@ async def upload_dataset(
     if sum(len(b) for b in blobs) > settings.max_upload_bytes:
         raise _too_large()
 
-    # A readable name for the combined dataset ("sales_jan.csv +1 more").
     names = [f.filename or "upload.csv" for f in files]
+
+    # Expand ZIPs into their CSV members (validated and capped) BEFORE creating
+    # the dataset row, so a bad archive never leaves an orphan. Keys are upload
+    # indices; plain CSVs ingest straight from their original file.
+    zip_members: dict[int, list[tuple[str, bytes]]] = {}
+    try:
+        for i, (name, blob) in enumerate(zip(names, blobs)):
+            if name.lower().endswith(".zip"):
+                zip_members[i] = archive.extract_csv_members(blob)
+    except archive.ArchiveError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+    csv_count = (len(files) - len(zip_members)) + sum(
+        len(m) for m in zip_members.values()
+    )
+    # Raw files are only ingestion inputs — same-schema files stack into one
+    # table, and the LLM-facing bound is settings.MAX_DATASET_TABLES applied
+    # after clustering (inside ingest_tables).
+    if csv_count > settings.MAX_CSV_FILES:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"This upload expands to {csv_count} CSV files; the limit "
+            f"per dataset is {settings.MAX_CSV_FILES}.",
+        )
+    if (
+        sum(len(b) for ms in zip_members.values() for _, b in ms)
+        > settings.max_upload_bytes
+    ):
+        raise _too_large()
+
+    # A readable name for the combined dataset ("sales_jan.csv +1 more").
     display_name = names[0] if len(names) == 1 else f"{names[0]} +{len(names) - 1} more"
 
     # Create the dataset row first so we have an id for the storage path.
@@ -113,9 +152,12 @@ async def upload_dataset(
     await db.refresh(dataset)
 
     # Persist each original untouched (kept as a backup even after cleaning). A
-    # per-file index keeps same-named uploads from clobbering each other.
+    # per-file index keeps same-named uploads from clobbering each other. ZIP
+    # members are additionally written out flat as the ingestion sources; their
+    # relative path stays in the display name so table names keep the folders.
     dataset_dir = storage.dataset_dir(user.id, dataset.id)
     named_paths: list[tuple[str, str]] = []
+    extracted_count = 0
     for i, (name, blob) in enumerate(zip(names, blobs)):
         path = (
             storage.indexed_original_path(user.id, dataset.id, i, name)
@@ -123,8 +165,18 @@ async def upload_dataset(
             else storage.original_path(user.id, dataset.id, name)
         )
         path.write_bytes(blob)
-        named_paths.append((name, str(path)))
-    dataset.storage_path = named_paths[0][1]
+        if i == 0:
+            dataset.storage_path = str(path)
+        if i in zip_members:
+            for member_name, content in zip_members[i]:
+                member_path = storage.extracted_csv_path(
+                    user.id, dataset.id, extracted_count, member_name
+                )
+                extracted_count += 1
+                member_path.write_bytes(content)
+                named_paths.append((member_name, str(member_path)))
+        else:
+            named_paths.append((name, str(path)))
     dataset.status = DatasetStatus.profiling
     await db.commit()
 
@@ -134,6 +186,15 @@ async def upload_dataset(
         tables_info, changes, preprocessed = await asyncio.to_thread(
             ingestion.ingest_tables, named_paths, str(dataset_dir)
         )
+    except ingestion.TooManyTablesError as exc:
+        # Only discoverable after parsing + clustering; the message is already
+        # user-facing, so pass it through without the parse-failure framing.
+        dataset.status = DatasetStatus.failed
+        dataset.error = str(exc)[:2048]
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     except Exception as exc:  # noqa: BLE001 — surface any parse/IO failure to the user
         logger.exception("Ingestion failed for dataset %s", dataset.id)
         dataset.status = DatasetStatus.failed
@@ -149,6 +210,13 @@ async def upload_dataset(
     dataset.parquet_path = primary["parquet_path"]
     dataset.preprocessed = preprocessed
     dataset.preprocessing_summary = changes or []
+    # Ingestion summary for the UI: files in, resultant Parquet bytes out.
+    dataset.source_file_count = csv_count
+    dataset.size_bytes = sum(
+        p.stat().st_size
+        for t in tables_info
+        if (p := Path(t["parquet_path"])).exists()
+    )
     if len(tables_info) == 1:
         # Single table — the legacy shape: no tables JSONB, counts from that table.
         dataset.tables = None
