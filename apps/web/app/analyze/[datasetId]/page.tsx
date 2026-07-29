@@ -1,6 +1,5 @@
 "use client";
 
-import { useMemo, useState } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
@@ -27,9 +26,10 @@ import {
   useSuggestions,
 } from "@/services/api/requests/suggestions";
 import { SuggestionQueryKey } from "@/services/api/types/SuggestionQueryKey";
-import { PreprocessChange } from "@/types/dataset";
+import { Dataset, PreprocessChange } from "@/types/dataset";
 import { Report } from "@/types/report";
 import { ReportSuggestion } from "@/types/suggestion";
+import { formatBytes } from "@/utils/format";
 
 const CHART_LABELS: Record<string, string> = {
   bar: "Bar",
@@ -49,6 +49,22 @@ const CHART_LABELS: Record<string, string> = {
 
 const chartLabel = (type: string) =>
   CHART_LABELS[type] ?? type.replace(/_/g, " ");
+
+/** "950 files · 12 tables · 45,231 rows · 210 columns · 38.2 MB" — files and
+ * tables only when there are several; size only when recorded (newer uploads). */
+function datasetMeta(dataset: Dataset): string {
+  const tableCount = dataset.tables?.length ?? 1;
+  return [
+    (dataset.source_file_count ?? 1) > 1 &&
+      `${dataset.source_file_count!.toLocaleString()} files`,
+    tableCount > 1 && `${tableCount} tables`,
+    `${dataset.row_count!.toLocaleString()} rows`,
+    `${dataset.col_count} columns`,
+    dataset.size_bytes != null && formatBytes(dataset.size_bytes),
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 
 export default function AnalyzePage() {
   const token = useRequireAuth();
@@ -180,7 +196,7 @@ export default function AnalyzePage() {
           )}
           <p className="mt-1 text-sm text-gray-500">
             {dataset?.row_count != null
-              ? `${dataset.row_count.toLocaleString()} rows · ${dataset.col_count} columns`
+              ? datasetMeta(dataset)
               : "Analyzed by AI to suggest the reports worth generating."}
           </p>
         </div>
@@ -234,15 +250,16 @@ export default function AnalyzePage() {
                 </button>
               </div>
 
-              {!suggestions?.length ? (
               <PromptComposer
                 pending={createCustom.isPending}
                 onSubmit={createCustom.mutateAsync}
+              />
+
               {!suggestions?.length && !createCustom.isPending ? (
                 <EmptyPanel />
               ) : (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                  {suggestions.map((suggestion, index) => (
+                  {suggestions?.map((suggestion, index) => (
                     <SuggestionCard
                       key={suggestion.id}
                       index={index}
@@ -257,6 +274,7 @@ export default function AnalyzePage() {
                   ))}
                   {createCustom.isPending && (
                     <SuggestionSkeletonCard question={createCustom.variables} />
+                  )}
                 </div>
               )}
             </section>
@@ -511,14 +529,145 @@ function SuggestionCard({
   );
 }
 
+// Kept in sync with the API's CUSTOM_PROMPT_MIN/MAX_CHARS bounds.
+const PROMPT_MIN = 10;
+const PROMPT_MAX = 1000;
+
 function PromptComposer({
+  pending,
+  onSubmit,
+}: {
+  pending: boolean;
+  onSubmit: (prompt: string) => Promise<unknown>;
+}) {
+  const [prompt, setPrompt] = useState("");
+  // A 422 from the guardrails — shown inline so the user can rework the
+  // question, unlike transient errors which go to a toast.
+  const [rejection, setRejection] = useState<string | null>(null);
+  const showError = useShowApiErrorMessage();
+
+  const trimmed = prompt.trim();
+  const canSubmit = trimmed.length >= PROMPT_MIN && !pending;
+
+  const submit = () => {
+    if (!canSubmit) return;
+    setRejection(null);
+    onSubmit(trimmed)
+      .then(() => setPrompt(""))
+      .catch((error: unknown) => {
+        const err = error as AxiosError<{ detail?: unknown }>;
+        const detail = err?.response?.data?.detail;
+        if (err?.response?.status === 422 && typeof detail === "string") {
+          setRejection(detail);
+          return;
+        }
+        showError(error);
+      });
+  };
+
+  return (
+    <div className="mb-6 rounded-2xl border border-gray-200 bg-white p-5">
+      <label
+        htmlFor="custom-question"
+        className="text-sm font-semibold text-gray-900"
+      >
+        Ask your own question
+      </label>
+      <p className="mt-0.5 text-sm text-gray-500">
+        Not seeing the right idea? Describe what you want to learn and
         we&apos;ll turn it into a problem statement grounded in your data.
+      </p>
+
+      <textarea
+        id="custom-question"
+        value={prompt}
+        onChange={(e) => {
+          setPrompt(e.target.value.slice(0, PROMPT_MAX));
+          if (rejection) setRejection(null);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        rows={3}
+        maxLength={PROMPT_MAX}
+        disabled={pending}
+        placeholder="e.g. Which midfielders offer the most defensive contribution for the lowest price?"
+        className="mt-3 w-full resize-none rounded-xl border border-gray-200 bg-gray-50/60 px-3.5 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 focus:border-primary/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-primary/10 disabled:opacity-60"
+      />
+
+      {rejection && (
+        <p role="alert" className="mt-2 text-sm text-red-600">
+          {rejection}
+        </p>
+      )}
+
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span className="text-xs text-gray-400">
+          {prompt.length > PROMPT_MAX - 100
+            ? `${prompt.length}/${PROMPT_MAX}`
+            : "We'll only add it if your data can answer it."}
+        </span>
+        <button
+          onClick={submit}
+          disabled={!canSubmit}
+          className="flex shrink-0 items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {pending && <Spinner />}
           {pending ? "Analyzing…" : "Add problem statement"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Placeholder card shown in the grid while a user's question is being turned
  * into a problem statement — it occupies the slot the real card will fill.
+ */
 function SuggestionSkeletonCard({ question }: { question?: string }) {
   const ref = useRef<HTMLDivElement>(null);
+  // The card is appended at the end of the grid, which can sit below the fold —
+  // bring it into view so the submission visibly does something.
   useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, []);
+
+  return (
+    <div
+      ref={ref}
+      className="flex flex-col rounded-2xl border border-primary/30 bg-white p-5"
+    >
+      <div className="mb-2 flex items-start justify-between gap-3">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <Spinner />
+        </span>
+        <span className="text-xs font-medium text-primary">
           Crafting problem statement…
+        </span>
+      </div>
+
+      {question && (
+        <p className="mb-3 line-clamp-2 text-sm italic text-gray-400">
+          &ldquo;{question}&rdquo;
+        </p>
+      )}
+
+      <div className="animate-pulse">
+        <div className="mb-2 h-4 w-2/3 rounded bg-gray-100" />
+        <div className="mb-2 h-3 w-full rounded bg-gray-100" />
+        <div className="mb-4 h-3 w-4/5 rounded bg-gray-100" />
+        <div className="flex gap-1.5">
+          <div className="h-5 w-16 rounded-full bg-gray-100" />
+          <div className="h-5 w-16 rounded-full bg-gray-100" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Analyzing({ filename }: { filename?: string }) {
   return (
     <div>
@@ -558,7 +707,6 @@ function EmptyPanel() {
     <div className="rounded-2xl border border-dashed border-gray-300 bg-white p-10 text-center">
       <p className="text-gray-500">
         No suggestions left. Regenerate ideas to explore this dataset from new
-        angles.
         angles, or ask your own question above.
       </p>
     </div>

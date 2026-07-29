@@ -14,6 +14,7 @@ from pathlib import Path
 import pandas as pd
 from pandas.api import types as pdt
 
+from app.core.config import settings
 from app.core.logging import logger
 
 # How many distinct sample values to keep per column for the LLM context.
@@ -23,6 +24,11 @@ _CATEGORICAL_RATIO = 0.5
 # Files whose columns overlap at least this much (Jaccard) are treated as the SAME
 # table split into parts and stacked; less overlap → they stay separate tables.
 _STACK_OVERLAP = 0.6
+
+
+class TooManyTablesError(Exception):
+    """The files form more distinct tables than the LLM pipeline can reason
+    over. The message is user-facing."""
 
 
 def load_csv(path: str | Path) -> pd.DataFrame:
@@ -114,8 +120,12 @@ def profile_dataframe(df: pd.DataFrame) -> list[dict]:
 
 def _table_name(filename: str, taken: set[str]) -> str:
     """A safe, unique SQL identifier derived from a filename ('Sales Q1.csv' →
-    'sales_q1'), so each table can be referenced by name in DuckDB."""
-    stem = re.sub(r"[^a-z0-9]+", "_", Path(filename).stem.lower()).strip("_") or "table"
+    'sales_q1'), so each table can be referenced by name in DuckDB. Folder parts
+    (ZIP members keep their relative path) are folded in — '2024/players.csv' →
+    't_2024_players' — so same-named files from different folders stay apart."""
+    path = Path(filename)
+    base = " ".join((*path.parts[:-1], path.stem))
+    stem = re.sub(r"[^a-z0-9]+", "_", base.lower()).strip("_")[:63] or "table"
     if stem[0].isdigit():
         stem = f"t_{stem}"
     name, i = stem, 2
@@ -180,6 +190,14 @@ def ingest_tables(
     from app.services import preprocessing
 
     tables = build_tables([(name, load_csv(path)) for name, path in named_paths])
+    # Every table's schema is pasted into the LLM prompts, so the DISTINCT-table
+    # count after clustering — not the raw file count — must stay bounded.
+    if len(tables) > settings.MAX_DATASET_TABLES:
+        raise TooManyTablesError(
+            f"These files form {len(tables)} distinct tables; the limit is "
+            f"{settings.MAX_DATASET_TABLES}. Files with matching columns are "
+            "combined automatically — this upload has too many different schemas."
+        )
     single = len(tables) == 1
     dataset_dir = Path(dataset_dir)
     out: list[dict] = []

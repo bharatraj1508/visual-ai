@@ -144,6 +144,15 @@ class Settings(BaseSettings):
     def max_upload_bytes(self) -> int:
         return self.MAX_UPLOAD_MB * 1024 * 1024
 
+    # Cap on raw CSV files per dataset after ZIP expansion. Files are only
+    # ingestion inputs — same-schema files are stacked into one table.
+    MAX_CSV_FILES: int = 1000
+
+    # Cap on DISTINCT tables after schema clustering. Every table's schema is
+    # pasted into the LLM prompts (suggestions, report plans, chat), so this —
+    # not the raw file count — bounds prompt size, cost and latency.
+    MAX_DATASET_TABLES: int = 50
+
     # CORS origins for the Next.js frontend (comma-separated list in the .env).
     BACKEND_CORS_ORIGINS: str = "http://localhost:3000"
 

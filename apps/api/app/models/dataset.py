@@ -6,7 +6,7 @@ import enum
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Enum as SAEnum
+from sqlalchemy import BigInteger, Boolean, Enum as SAEnum
 from sqlalchemy import ForeignKey, Integer, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -36,6 +36,10 @@ class Dataset(UUIDMixin, TimestampMixin, Base):
     parquet_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     row_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     col_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Ingestion summary: how many CSV files went in (ZIPs expanded) and the
+    # total size of the resulting Parquet tables. NULL on pre-existing rows.
+    source_file_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     status: Mapped[DatasetStatus] = mapped_column(
         SAEnum(DatasetStatus, name="datasetstatus"),
         default=DatasetStatus.uploading,

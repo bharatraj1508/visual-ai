@@ -34,6 +34,17 @@ def indexed_original_path(
     return dataset_dir(user_id, dataset_id) / f"original__{index}__{safe}"
 
 
+def extracted_csv_path(
+    user_id: uuid.UUID, dataset_id: uuid.UUID, index: int, member_name: str
+) -> Path:
+    """Path for a CSV pulled out of an uploaded ZIP. The member's relative path
+    is flattened into the name ('2024/players.csv' →
+    'extracted__0__2024__players.csv') so nothing inside the archive dictates
+    the directory layout."""
+    safe = Path(member_name.replace("/", "__")).name
+    return dataset_dir(user_id, dataset_id) / f"extracted__{index}__{safe}"
+
+
 def parquet_path(user_id: uuid.UUID, dataset_id: uuid.UUID) -> Path:
     return dataset_dir(user_id, dataset_id) / "data.parquet"
 
