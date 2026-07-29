@@ -17,8 +17,12 @@ COPY requirements.txt .
 # Install Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the rest of the application code
+# Copy the application code + Alembic config. alembic.ini lives at the api root
+# (migrations themselves are under app/migrations); it MUST be present or
+# `alembic upgrade head` in the migrate service can't find its config.
+COPY alembic.ini .
 COPY app/ ./app/
+COPY scripts/ ./scripts/
 
 # Expose the port FastAPI runs on
 EXPOSE 8000

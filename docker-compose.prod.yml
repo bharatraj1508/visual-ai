@@ -1,0 +1,40 @@
+# VPS prod override. No local Postgres — the API + migrate runner join the
+# shared external Postgres network that already exists on the VPS. Ports bind to
+# 127.0.0.1 only; a reverse proxy (Caddy/nginx) on the host fronts each vhost.
+#
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+#
+# DATABASE_URL points at the Postgres host reachable on ${POSTGRES_NETWORK}
+# (set both in the root .env). Run migrations before `up`:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile migrate run --rm migrate
+services:
+  api:
+    environment:
+      - ENV=production
+      - DATABASE_URL=${DATABASE_URL}
+    # Replace the base 0.0.0.0 binding — only the local reverse proxy reaches it.
+    ports: !override
+      - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
+    networks:
+      - default
+      - hosted_db
+
+  migrate:
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+    networks:
+      - default
+      - hosted_db
+
+  web:
+    ports: !override
+      - "127.0.0.1:${WEB_HOST_PORT:-3000}:3000"
+    networks:
+      - default
+
+networks:
+  # The pre-existing network your shared Postgres is attached to. Find it with
+  # `docker network ls` on the VPS and set POSTGRES_NETWORK in the root .env.
+  hosted_db:
+    external: true
+    name: ${POSTGRES_NETWORK:-postgresql-k42d_default}
