@@ -1,6 +1,8 @@
 import ChartTypes from "@/components/landing/ChartTypes";
 import CtaBand from "@/components/landing/CtaBand";
 import DashboardShowcase from "@/components/landing/DashboardShowcase";
+import DataPipeline from "@/components/landing/DataPipeline";
+import Faq from "@/components/landing/Faq";
 import Hero from "@/components/landing/Hero";
 import HowItWorks from "@/components/landing/HowItWorks";
 import LandingFooter from "@/components/landing/LandingFooter";
@@ -20,11 +22,13 @@ export default function Home() {
           <Hero />
           <Thesis />
           <HowItWorks />
+          <DataPipeline />
           <Showcase />
           <ProblemStatement />
           <DashboardShowcase />
           <ChartTypes />
           <Pricing />
+          <Faq />
           <CtaBand />
         </main>
         <LandingFooter />
