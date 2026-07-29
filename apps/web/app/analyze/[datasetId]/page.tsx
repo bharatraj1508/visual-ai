@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { useQueryClient } from "@tanstack/react-query";
 import { AxiosError } from "axios";
@@ -20,6 +21,7 @@ import {
 } from "@/services/api/requests/datasets";
 import { useCreateReport, useReports } from "@/services/api/requests/reports";
 import {
+  useCreateCustomSuggestion,
   useDismissSuggestion,
   useRegenerateSuggestions,
   useSuggestions,
@@ -68,6 +70,9 @@ export default function AnalyzePage() {
   const dismiss = useDismissSuggestion(datasetId);
   const regenerate = useRegenerateSuggestions(datasetId);
   const preprocess = usePreprocessDataset(datasetId);
+  // Lifted out of the composer so the grid can show a skeleton card while the
+  // problem statement is being crafted.
+  const createCustom = useCreateCustomSuggestion(datasetId);
 
   const [busyId, setBusyId] = useState<string | null>(null);
   // Set when a generate attempt is rejected for insufficient credits (402).
@@ -230,6 +235,10 @@ export default function AnalyzePage() {
               </div>
 
               {!suggestions?.length ? (
+              <PromptComposer
+                pending={createCustom.isPending}
+                onSubmit={createCustom.mutateAsync}
+              {!suggestions?.length && !createCustom.isPending ? (
                 <EmptyPanel />
               ) : (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -246,6 +255,8 @@ export default function AnalyzePage() {
                       }
                     />
                   ))}
+                  {createCustom.isPending && (
+                    <SuggestionSkeletonCard question={createCustom.variables} />
                 </div>
               )}
             </section>
@@ -500,6 +511,14 @@ function SuggestionCard({
   );
 }
 
+function PromptComposer({
+        we&apos;ll turn it into a problem statement grounded in your data.
+          {pending ? "Analyzing…" : "Add problem statement"}
+ * into a problem statement — it occupies the slot the real card will fill.
+function SuggestionSkeletonCard({ question }: { question?: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+          Crafting problem statement…
 function Analyzing({ filename }: { filename?: string }) {
   return (
     <div>
@@ -540,6 +559,7 @@ function EmptyPanel() {
       <p className="text-gray-500">
         No suggestions left. Regenerate ideas to explore this dataset from new
         angles.
+        angles, or ask your own question above.
       </p>
     </div>
   );
