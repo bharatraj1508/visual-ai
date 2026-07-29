@@ -62,6 +62,21 @@ async def _active_suggestions(
     return list(result)
 
 
+async def _has_ever_had_suggestions(
+    dataset_id: uuid.UUID, user: User, db: AsyncSession
+) -> bool:
+    """True if this dataset ever had suggestions, in any status."""
+    row = await db.scalar(
+        select(ReportSuggestion.id)
+        .where(
+            ReportSuggestion.dataset_id == dataset_id,
+            ReportSuggestion.user_id == user.id,
+        )
+        .limit(1)
+    )
+    return row is not None
+
+
 async def _generate_and_store(
     dataset: Dataset, user: User, db: AsyncSession
 ) -> list[ReportSuggestion]:
@@ -98,6 +113,11 @@ async def list_suggestions(
     existing = await _active_suggestions(dataset_id, user, db)
     if existing:
         return existing
+    # Auto-generate only on the dataset's very first analyze. Once suggestions
+    # have existed, dismissing (or using) every card leaves the panel empty —
+    # new ideas appear only when the user explicitly asks to regenerate.
+    if await _has_ever_had_suggestions(dataset_id, user, db):
+        return []
     return await _generate_and_store(dataset, user, db)
 
 
