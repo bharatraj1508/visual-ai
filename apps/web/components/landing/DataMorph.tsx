@@ -4,9 +4,12 @@ import { useState } from "react";
 
 import { motion, useReducedMotion } from "framer-motion";
 
-// A miniature of the real product: a CSV is scanned, resolves into an
-// analytical question, and a grouped-bar chart draws itself — mirroring the
-// app's suggestion card + report chart. This is the page's signature moment.
+import Chart3D from "./three/Chart3D";
+
+// The page's signature moment: a CSV is scanned, resolves into an analytical
+// question, and the answering chart builds itself — now as a real 3D model that
+// grows from the floor and turns as you scroll. Mirrors the app's suggestion
+// card + report chart.
 
 const COLUMNS = [
   ["distance_covered_km", "11.2"],
@@ -16,26 +19,22 @@ const COLUMNS = [
   ["key_passes", "1.76"],
 ];
 
-const GROUPS = [
-  { label: "Defender", accuracy: 81, clutch: 55 },
-  { label: "Forward", accuracy: 78, clutch: 55 },
-  { label: "Midfielder", accuracy: 85, clutch: 56 },
+const BARS = [
+  { label: "Defender", values: [81, 55] },
+  { label: "Forward", values: [78, 55] },
+  { label: "Midfielder", values: [85, 56] },
 ];
-
-const GRID = [100, 75, 50, 25, 0];
 
 export default function DataMorph() {
   const reduce = useReducedMotion();
   const [runId, setRunId] = useState(0);
   const replay = () => setRunId((n) => n + 1);
 
-  // With reduced motion we show the finished state and skip the choreography.
   const t = (delay: number, duration = 0.5) =>
     reduce ? { duration: 0 } : { duration, delay, ease: [0.22, 0.61, 0.36, 1] };
 
   return (
     <div className="relative w-full">
-      {/* soft glow behind the card */}
       <div
         aria-hidden
         className="absolute -inset-6 -z-10 rounded-[2rem] bg-gradient-to-tr from-primary/10 via-teal/10 to-transparent blur-2xl"
@@ -81,7 +80,7 @@ export default function DataMorph() {
           </motion.div>
         )}
 
-        <div className="space-y-5 p-5">
+        <div className="space-y-4 p-5">
           {/* data ribbon */}
           <motion.div
             className="flex flex-wrap gap-1.5"
@@ -119,58 +118,14 @@ export default function DataMorph() {
             </p>
           </motion.div>
 
-          {/* grouped bar chart drawing itself */}
+          {/* the answering chart, in 3D */}
           <div>
-            <div className="relative h-44 pl-7">
-              {GRID.map((g) => (
-                <div
-                  key={g}
-                  className="absolute inset-x-0 flex items-center"
-                  style={{ bottom: `${g}%` }}
-                >
-                  <span className="w-7 -translate-x-7 pr-1 text-right font-mono text-[9px] text-gray-300">
-                    {g}
-                  </span>
-                  <div className="h-px w-full bg-gray-100" />
-                </div>
-              ))}
-
-              <div className="absolute inset-0 flex items-end justify-around pl-1">
-                {GROUPS.map((group, gi) => (
-                  <div key={group.label} className="flex h-full items-end gap-1.5">
-                    {[
-                      { v: group.accuracy, color: "#FB676E" },
-                      { v: group.clutch, color: "#2DD4BF" },
-                    ].map((bar, bi) => (
-                      <motion.div
-                        key={bi}
-                        initial={reduce ? false : { scaleY: 0 }}
-                        animate={{ scaleY: 1 }}
-                        transition={t(1.5 + gi * 0.12 + bi * 0.06, 0.7)}
-                        whileHover={{ opacity: 0.82 }}
-                        className="w-5 origin-bottom rounded-t-[3px] sm:w-7"
-                        style={{ height: `${bar.v}%`, backgroundColor: bar.color }}
-                        title={`${bar.v}`}
-                      />
-                    ))}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="mt-2 flex justify-around pl-7">
-              {GROUPS.map((g) => (
-                <span key={g.label} className="font-mono text-[10px] text-gray-400">
-                  {g.label}
-                </span>
-              ))}
-            </div>
-
+            <Chart3D key={`chart-${runId}`} kind="bars" bars={BARS} className="h-56 w-full" />
             <motion.div
               initial={reduce ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={t(2.3)}
-              className="mt-3 flex items-center justify-center gap-4 font-mono text-[10px]"
+              transition={t(1.6)}
+              className="mt-1 flex items-center justify-center gap-4 font-mono text-[10px]"
             >
               <span className="flex items-center gap-1.5 text-gray-500">
                 <span className="h-2 w-2 rounded-sm bg-primary" />

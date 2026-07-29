@@ -1,18 +1,9 @@
 "use client";
 
 import { motion } from "framer-motion";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Legend,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 
 import { fadeUp, reveal, stagger } from "./motion";
+import Chart3D from "./three/Chart3D";
 
 const SUGGESTIONS = [
   {
@@ -31,10 +22,10 @@ const SUGGESTIONS = [
   },
 ];
 
-const CHART_DATA = [
-  { position: "Defender", pass_accuracy_pct: 81, clutch_score: 55 },
-  { position: "Forward", pass_accuracy_pct: 78, clutch_score: 55 },
-  { position: "Midfielder", pass_accuracy_pct: 85, clutch_score: 56 },
+const CHART_BARS = [
+  { label: "Defender", values: [81, 55] },
+  { label: "Forward", values: [78, 55] },
+  { label: "Midfielder", values: [85, 56] },
 ];
 
 export default function Showcase() {
@@ -122,42 +113,23 @@ export default function Showcase() {
             </p>
 
             <div className="mt-5 rounded-xl border border-gray-100 p-3">
-              <p className="mb-2 text-xs font-medium text-gray-600">
+              <p className="mb-1 text-xs font-medium text-gray-600">
                 Technical &amp; Clutch Output by Positional Cohort
               </p>
-              <div className="h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={CHART_DATA} margin={{ top: 8, right: 8, left: -16, bottom: 0 }}>
-                    <CartesianGrid stroke="#EEF0F3" vertical={false} />
-                    <XAxis
-                      dataKey="position"
-                      stroke="#9CA3AF"
-                      tickLine={false}
-                      tick={{ fontSize: 12, fill: "#6B7280" }}
-                    />
-                    <YAxis
-                      domain={[0, 100]}
-                      stroke="#9CA3AF"
-                      tickLine={false}
-                      tick={{ fontSize: 11, fill: "#9CA3AF" }}
-                    />
-                    <Tooltip
-                      cursor={{ fill: "rgba(0,0,0,0.03)" }}
-                      contentStyle={{
-                        borderRadius: 10,
-                        border: "1px solid #E5E7EB",
-                        fontSize: 12,
-                      }}
-                    />
-                    <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
-                    <Bar dataKey="pass_accuracy_pct" fill="#FB676E" radius={[4, 4, 0, 0]} maxBarSize={44} />
-                    <Bar dataKey="clutch_score" fill="#2DD4BF" radius={[4, 4, 0, 0]} maxBarSize={44} />
-                  </BarChart>
-                </ResponsiveContainer>
+              <Chart3D kind="bars" bars={CHART_BARS} className="h-64 w-full" />
+              <div className="flex items-center justify-center gap-4 font-mono text-[10px]">
+                <span className="flex items-center gap-1.5 text-gray-500">
+                  <span className="h-2 w-2 rounded-sm bg-primary" />
+                  pass_accuracy_pct
+                </span>
+                <span className="flex items-center gap-1.5 text-gray-500">
+                  <span className="h-2 w-2 rounded-sm bg-teal" />
+                  clutch_score
+                </span>
               </div>
             </div>
             <p className="mt-3 font-mono text-[11px] text-gray-400">
-              ↑ hover the bars — every chart in a report is interactive.
+              ↑ built in 3D — hover a bar, or scroll to turn the model.
             </p>
           </motion.div>
         </div>
