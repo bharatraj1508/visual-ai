@@ -251,7 +251,7 @@ export default function ReportPage() {
   return (
     <div className="min-h-screen">
       <AppHeader />
-      <main className="mx-auto max-w-3xl px-6 py-8">
+      <main className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
         <Breadcrumb
           items={[
             { label: "Dashboard", href: "/dashboard" },
@@ -271,10 +271,10 @@ export default function ReportPage() {
               onSave={(title) => renameReport.mutate(title)}
               saving={renameReport.isPending}
               ariaLabel="Rename report"
-              className="text-3xl font-semibold tracking-tight text-gray-900"
+              className="text-2xl font-semibold tracking-tight text-gray-900 sm:text-3xl"
             />
           ) : (
-            <h1 className="text-3xl font-semibold tracking-tight">Report</h1>
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">Report</h1>
           )}
           {report?.goal && (
             <p className="mt-2 text-sm leading-relaxed text-gray-500">
@@ -390,7 +390,7 @@ function VersionPanel({
   const done = version.status === "completed";
 
   const header = (
-    <div className="flex items-center justify-between gap-3 px-4 py-3">
+    <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
       <button
         type="button"
         onClick={collapsible ? onToggle : undefined}
@@ -428,7 +428,7 @@ function VersionPanel({
           </span>
         )}
       </button>
-      <div className="flex shrink-0 items-center gap-3">
+      <div className="flex shrink-0 flex-wrap items-center gap-3">
         {version.status === "completed" && version.credit_cost != null && (
           <CreditBadge credits={version.credit_cost} />
         )}
@@ -480,7 +480,7 @@ function VersionPanel({
     <section className="overflow-hidden rounded-2xl border border-gray-200 bg-white">
       {header}
       {open && (
-        <div className="border-t border-gray-100 px-4 pb-6 pt-5">
+        <div className="border-t border-gray-100 px-3 pb-6 pt-5 sm:px-4">
           {failed && (
             <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
               <span>
@@ -506,7 +506,7 @@ function VersionPanel({
           <div className="space-y-12">
             {sections.map((section, i) => (
               <div key={i} className="scroll-mt-8">
-                <h2 className="mb-4 text-xl font-semibold tracking-tight text-gray-900">
+                <h2 className="mb-4 text-lg font-semibold tracking-tight text-gray-900 sm:text-xl">
                   {section.title}
                 </h2>
                 {section.narrative && (

@@ -171,7 +171,7 @@ export default function AnalyzePage() {
   return (
     <div className="min-h-screen">
       <AppHeader />
-      <main className="mx-auto max-w-5xl px-6 py-8">
+      <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
         <Breadcrumb
           items={[
             { label: "Dashboard", href: "/dashboard" },
@@ -308,7 +308,7 @@ function PreprocessCard({
     : "border-amber-200 bg-amber-50/60";
   return (
     <section className={`mb-8 rounded-2xl border p-5 ${accent}`}>
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col items-start justify-between gap-4 sm:flex-row">
         <div className="flex items-start gap-3">
           <span
             className={`mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${

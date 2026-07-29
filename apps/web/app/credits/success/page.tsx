@@ -67,8 +67,8 @@ function SuccessInner() {
   return (
     <div className="min-h-screen bg-gray-50">
       <AppHeader />
-      <main className="mx-auto max-w-md px-6 py-16 text-center">
-        <div className="rounded-2xl border border-gray-200 bg-white p-8 shadow-sm">
+      <main className="mx-auto max-w-md px-4 py-12 text-center sm:px-6 sm:py-16">
+        <div className="rounded-2xl border border-gray-200 bg-white p-6 shadow-sm sm:p-8">
           {done ? (
             <>
               <h1 className="text-xl font-semibold text-green-600">
@@ -103,7 +103,7 @@ function SuccessInner() {
               </p>
             </>
           )}
-          <div className="mt-6 flex gap-3">
+          <div className="mt-6 flex flex-col gap-3 sm:flex-row">
             <Link
               href="/dashboard"
               className="flex-1 rounded-lg bg-primary py-2.5 text-sm font-medium text-white"

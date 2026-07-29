@@ -70,7 +70,7 @@ export default function ChartTypes() {
         <motion.div
           {...reveal}
           variants={stagger}
-          className="mt-14 grid grid-cols-2 gap-4 lg:grid-cols-4"
+          className="mt-14 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4"
         >
           {GALLERY.map((g) => (
             <motion.div

@@ -11,11 +11,14 @@ export default function AppHeader() {
   const router = useRouter();
 
   return (
-    <header className="flex items-center justify-between border-b border-gray-200 bg-white px-6 py-3">
-      <Link href="/dashboard" className="text-lg font-semibold text-primary">
+    <header className="flex items-center justify-between gap-3 border-b border-gray-200 bg-white px-4 py-3 sm:px-6">
+      <Link
+        href="/dashboard"
+        className="shrink-0 text-lg font-semibold text-primary"
+      >
         Visual AI
       </Link>
-      <div className="flex items-center gap-4">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-4">
         <CreditBalance />
         <button
           onClick={() => {

@@ -182,13 +182,13 @@ function MergeDiagram() {
                 initial={reduce ? false : { opacity: 0, x: 16 }}
                 animate={play ? { opacity: 1, x: 0 } : {}}
                 transition={{ delay: 0.6 + i * 0.08, duration: 0.5, ease: [0.22, 0.61, 0.36, 1] }}
-                className="flex items-center justify-between rounded-lg border border-gray-100 bg-gradient-to-r from-primary/[0.04] to-transparent px-3 py-2"
+                className="flex items-center justify-between gap-2 rounded-lg border border-gray-100 bg-gradient-to-r from-primary/[0.04] to-transparent px-3 py-2"
               >
-                <span className="flex items-center gap-2 font-mono text-xs text-ink">
-                  <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-                  {t.name}
+                <span className="flex min-w-0 items-center gap-2 font-mono text-xs text-ink">
+                  <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
+                  <span className="truncate">{t.name}</span>
                 </span>
-                <span className="font-mono text-[11px] text-gray-400">
+                <span className="shrink-0 font-mono text-[11px] text-gray-400">
                   <CountUp to={t.rows} play={play} reduce={!!reduce} /> rows
                 </span>
               </motion.div>
