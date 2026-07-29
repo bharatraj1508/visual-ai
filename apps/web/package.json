@@ -12,6 +12,8 @@
     "clean": "rm -rf .next node_modules out"
   },
   "dependencies": {
+    "@react-three/drei": "9.114.3",
+    "@react-three/fiber": "8.17.10",
     "@reduxjs/toolkit": "^2.2.3",
     "@tanstack/react-query": "^5.29.0",
     "@zumer/snapdom": "^2.22.0",
@@ -31,6 +33,7 @@
     "redux": "^5.0.1",
     "redux-persist": "^6.0.0",
     "remark-gfm": "^4.0.0",
+    "three": "0.169.0",
     "vega": "^5.30.0",
     "vega-lite": "^5.21.0"
   },
@@ -39,6 +42,7 @@
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
+    "@types/three": "0.185.1",
     "autoprefixer": "^10.0.1",
     "eslint": "^8",
     "eslint-config-next": "^14.2.28",
