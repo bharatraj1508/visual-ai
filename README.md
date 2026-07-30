@@ -208,8 +208,9 @@ Then open **http://localhost:3000**, register, verify your email, upload a CSV, 
 
 ## Run with Docker (full stack)
 
-Everything (API + web + migrations) runs in containers. Two overlays sit on top
-of the shared `docker-compose.yml`:
+Everything (API + web) runs in containers. **Migrations run automatically** on
+API startup (`apps/api/entrypoint.sh` → `alembic upgrade head`, with retry) — no
+separate step. Two overlays sit on top of the shared `docker-compose.yml`:
 
 | File | Adds |
 |------|------|
@@ -219,36 +220,44 @@ of the shared `docker-compose.yml`:
 **One-time setup** — two env files:
 
 ```bash
-cp .env.example .env                  # infra/compose vars (ports, local DB, NEXT_PUBLIC_*)
+cp .env.example .env                  # infra/compose vars (COMPOSE_FILE, ports, DB, NEXT_PUBLIC_*)
 cp apps/api/.env.example apps/api/.env # API app config (GOOGLE_API_KEY, SECRET_KEY, email, razorpay, ...)
 ```
+
+Set `COMPOSE_FILE` in the root `.env` so you can run a plain `docker compose up`
+with no `-f` flags (and no Node/yarn needed):
+
+- local: `COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml`
+- VPS:   `COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml`
 
 ### Local
 
 ```bash
-yarn docker:dev                       # build + start api, web, postgres, adminer
-yarn docker:migrate:dev               # run Alembic migrations (first run + after schema changes)
+docker compose up --build             # api, web, postgres, adminer (migrations auto-run)
 # web → http://localhost:3000   api → http://localhost:8000   adminer → http://localhost:8080
 ```
 
 ### VPS (production)
 
 The VPS already runs a shared Postgres on its own docker network, so no DB
-container is started. In the root `.env` set:
+container is started. First **create the database** in that Postgres (e.g. via
+Adminer: `CREATE DATABASE visual_ai;`), then in the root `.env` set:
 
 - `DATABASE_URL` — async URL for that Postgres (`postgresql+asyncpg://user:pass@<pg-host>:5432/visual_ai`)
 - `POSTGRES_NETWORK` — the network name that Postgres is on (`docker network ls`)
-- `NEXT_PUBLIC_BASE_API_URL` — the public API URL your reverse proxy serves (e.g. `https://api.your-domain.com/api/v1`)
+- `NEXT_PUBLIC_BASE_API_URL` — the public API URL your reverse proxy serves (e.g. `https://your-domain.com/api/v1`)
 
-Then:
+Then, one command — builds images, runs migrations, brings the stack up:
 
 ```bash
-yarn docker:migrate:prod              # apply migrations against the external DB
-yarn docker:prod                      # build + start api + web (detached, bound to 127.0.0.1)
+docker compose up --build -d
 ```
 
 Point Caddy/nginx at `127.0.0.1:3000` (web) and `127.0.0.1:8000` (api). Uploaded
 CSVs + the Parquet cache persist in the `api_storage` named volume.
+
+> The DB **must already exist** — the app auto-creates *tables* (Alembic), not
+> the database/role itself.
 
 ---
 

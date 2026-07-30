@@ -27,20 +27,6 @@ services:
     ports:
       - "${API_HOST_PORT:-8000}:8000"
 
-  # One-shot Alembic migration runner. Not started by `up`; invoke explicitly:
-  #   docker compose -f ... -f ... --profile migrate run --rm migrate
-  # Shares the api image; the second build is a full cache hit.
-  migrate:
-    build:
-      context: ./apps/api
-    image: visual-ai-api:latest
-    container_name: visual_ai_migrate
-    profiles: ["migrate"]
-    restart: "no"
-    env_file:
-      - ./apps/api/.env
-    command: ["alembic", "upgrade", "head"]
-
   # Next.js frontend (standalone build)
   web:
     build:
