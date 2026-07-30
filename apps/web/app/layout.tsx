@@ -6,7 +6,11 @@ import "./globals.css";
 
 import AppProviders from "@/providers";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter", display: "swap" });
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+});
 const sora = Sora({
   subsets: ["latin"],
   weight: ["500", "600", "700"],
@@ -21,9 +25,18 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Visual AI — the report your data would write",
+  title: "Visual AI",
   description:
     "Upload a CSV. Visual AI scopes the five reports worth running and writes each one — findings, narrative, and interactive charts. Not a chatbot; a data analyst.",
+  icons: {
+    icon: [
+      { url: "/favicon.svg", type: "image/svg+xml" },
+      { url: "/favicon-32.png", type: "image/png", sizes: "32x32" },
+      { url: "/favicon.png", type: "image/png" },
+    ],
+    shortcut: "/favicon.png",
+    apple: "/favicon.png",
+  },
 };
 
 export default function RootLayout({
