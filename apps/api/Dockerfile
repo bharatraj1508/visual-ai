@@ -19,13 +19,16 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the application code + Alembic config. alembic.ini lives at the api root
 # (migrations themselves are under app/migrations); it MUST be present or
-# `alembic upgrade head` in the migrate service can't find its config.
+# `alembic upgrade head` can't find its config.
 COPY alembic.ini .
+COPY entrypoint.sh .
 COPY app/ ./app/
 COPY scripts/ ./scripts/
+RUN chmod +x entrypoint.sh
 
 # Expose the port FastAPI runs on
 EXPOSE 8000
 
-# Run the FastAPI app using uvicorn
+# entrypoint runs migrations (with retry), then execs the CMD below.
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

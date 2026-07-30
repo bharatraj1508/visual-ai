@@ -21,10 +21,8 @@
     "format": "prettier --write .",
     "docker:dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build",
     "docker:dev:down": "docker compose -f docker-compose.yml -f docker-compose.dev.yml down",
-    "docker:migrate:dev": "docker compose -f docker-compose.yml -f docker-compose.dev.yml --profile migrate run --rm migrate",
     "docker:prod": "docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build",
-    "docker:prod:down": "docker compose -f docker-compose.yml -f docker-compose.prod.yml down",
-    "docker:migrate:prod": "docker compose -f docker-compose.yml -f docker-compose.prod.yml --profile migrate run --rm migrate"
+    "docker:prod:down": "docker compose -f docker-compose.yml -f docker-compose.prod.yml down"
   },
   "devDependencies": {
     "prettier": "^3.5.3",
