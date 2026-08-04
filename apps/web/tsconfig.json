@@ -18,5 +18,9 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  // Remotion scripts are standalone node tooling run via `tsx` (they use ESM
+  // `.ts` import specifiers and node APIs), not part of the Next bundle — the
+  // app imports nothing from remotion/. Keep them out of `next build`'s
+  // type-check so their tsx-only module semantics don't fail the production build.
+  "exclude": ["node_modules", "remotion/scripts"]
 }
