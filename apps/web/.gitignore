@@ -1,0 +1,8 @@
+
+# Remotion
+out/
+.remotion/
+
+# Remotion generated audio
+public/vo/
+public/music.mp3

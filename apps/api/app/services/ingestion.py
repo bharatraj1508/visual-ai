@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import warnings
 from pathlib import Path
+from typing import Callable, Optional
 
 import pandas as pd
 from pandas.api import types as pdt
@@ -29,6 +30,13 @@ _STACK_OVERLAP = 0.6
 class TooManyTablesError(Exception):
     """The files form more distinct tables than the LLM pipeline can reason
     over. The message is user-facing."""
+
+
+# A live-progress sink: progress(key, state, label, detail). `key` groups
+# updates to one UI line ("clean" advances through tables); `state` is "active"
+# or "done". Ingestion runs in a worker thread, so implementations must be
+# thread-safe (the SSE endpoint hands off via loop.call_soon_threadsafe).
+Progress = Callable[[str, str, str, Optional[str]], None]
 
 
 def load_csv(path: str | Path) -> pd.DataFrame:
@@ -174,7 +182,9 @@ def build_tables(items: list[tuple[str, pd.DataFrame]]) -> list[dict]:
 
 
 def ingest_tables(
-    named_paths: list[tuple[str, str | Path]], dataset_dir: str | Path
+    named_paths: list[tuple[str, str | Path]],
+    dataset_dir: str | Path,
+    progress: Progress | None = None,
 ) -> tuple[list[dict], list[dict], bool]:
     """Blocking pipeline for one or more CSVs that form a dataset.
 
@@ -184,12 +194,25 @@ def ingest_tables(
     ``{name, filename, parquet_path, row_count, col_count, columns}``. A single
     table is written to ``data.parquet`` — the legacy layout — so single-CSV
     datasets are byte-for-byte unchanged. Run via asyncio.to_thread.
+
+    ``progress`` (optional) receives live step updates for the upload UI.
     """
     # Lazy import keeps the module dependency one-way (preprocessing imports
     # ingestion at module load, not the reverse).
     from app.services import preprocessing
 
-    tables = build_tables([(name, load_csv(path)) for name, path in named_paths])
+    def emit(key: str, state: str, label: str, detail: str | None = None) -> None:
+        if progress is not None:
+            progress(key, state, label, detail)
+
+    n = len(named_paths)
+    emit("read", "active", "Reading your files")
+    items = [(name, load_csv(path)) for name, path in named_paths]
+    emit("read", "done", "Reading your files",
+         f"{n} file{'s' if n != 1 else ''} read")
+
+    emit("combine", "active", "Detecting & combining tables")
+    tables = build_tables(items)
     # Every table's schema is pasted into the LLM prompts, so the DISTINCT-table
     # count after clustering — not the raw file count — must stay bounded.
     if len(tables) > settings.MAX_DATASET_TABLES:
@@ -199,11 +222,24 @@ def ingest_tables(
             "combined automatically — this upload has too many different schemas."
         )
     single = len(tables) == 1
+    tcount = len(tables)
+    emit(
+        "combine", "done", "Detecting & combining tables",
+        "single table"
+        if single
+        else f"{n} files grouped into {tcount} tables",
+    )
     dataset_dir = Path(dataset_dir)
     out: list[dict] = []
     changes: list[dict] = []
     preprocessed = True
+    emit("clean", "active", "Cleaning & profiling your data")
     for i, t in enumerate(tables):
+        if not single:
+            emit(
+                "clean", "active", "Cleaning & profiling your data",
+                f"table {i + 1}/{tcount}: {t['name']}",
+            )
         path = dataset_dir / ("data.parquet" if single else f"table__{i}__{t['name']}.parquet")
         write_parquet(t["df"], path)
         try:
@@ -221,6 +257,13 @@ def ingest_tables(
             "col_count": cols,
             "columns": profiles,
         })
+    total_rows = sum(t["row_count"] for t in out)
+    fixes = len(changes)
+    emit(
+        "clean", "done", "Cleaning & profiling your data",
+        f"{total_rows:,} rows"
+        + (f" · {fixes} fix{'es' if fixes != 1 else ''} found" if fixes else " · looks clean"),
+    )
     if not single:
         logger.info("Ingested %d tables for dataset dir %s", len(out), dataset_dir)
     return out, changes, preprocessed

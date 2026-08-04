@@ -1,5 +1,36 @@
 export type DatasetStatus = "uploading" | "profiling" | "ready" | "failed";
 
+/** One line in the live processing checklist streamed after upload. `key`
+ * identifies the step so repeated events update the same row in place. */
+export interface ProcessingStep {
+  key: string;
+  label: string;
+  state: "active" | "done";
+  detail: string | null;
+}
+
+/** Payload of the `done` event: the dataset is ready to analyze. */
+export interface ProcessingDone {
+  dataset_id: string;
+  row_count: number | null;
+  col_count: number | null;
+  tables: number;
+  source_file_count: number | null;
+}
+
+export type ProcessingStreamEvent =
+  | { type: "step"; data: ProcessingStep }
+  | { type: "done"; data: ProcessingDone }
+  | { type: "error"; data: { detail: string } };
+
+/** The upload → process lifecycle the loading screen renders. */
+export type UploadPhase =
+  | "idle"
+  | "uploading"
+  | "processing"
+  | "done"
+  | "error";
+
 export interface PreprocessChange {
   code: string;
   title: string;

@@ -49,6 +49,14 @@ def parquet_path(user_id: uuid.UUID, dataset_id: uuid.UUID) -> Path:
     return dataset_dir(user_id, dataset_id) / "data.parquet"
 
 
+def ingest_manifest_path(user_id: uuid.UUID, dataset_id: uuid.UUID) -> Path:
+    """Handoff written at upload and consumed by the processing stream: the list
+    of ``[member_name, disk_path]`` ingestion sources. Kept as a sidecar (rather
+    than a DB column) because it's transient — it only bridges the two requests.
+    Member names keep their original relative path so table naming is unchanged."""
+    return dataset_dir(user_id, dataset_id) / "_ingest.json"
+
+
 def remove_dataset_files(user_id: uuid.UUID, dataset_id: uuid.UUID) -> None:
     path = Path(settings.STORAGE_DIR) / str(user_id) / str(dataset_id)
     if path.exists():
