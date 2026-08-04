@@ -1,6 +1,13 @@
-"""Dataset endpoints: upload CSVs or a ZIP of them (profiled synchronously for
-small data), list/get datasets, fetch the column profile, and delete."""
+"""Dataset endpoints: upload CSVs or a ZIP of them, watch processing stream in
+live over SSE, list/get datasets, fetch the column profile, and delete.
+
+Upload is split so the client can show a real loading screen: POST saves the
+raw files fast (real upload progress) and returns the row as `uploading`; the
+client then opens GET /{id}/process/stream, which clusters/cleans/profiles the
+data and generates report suggestions, emitting a live step for each phase and
+flipping the row to `ready` at the end."""
 import asyncio
+import json
 import uuid
 from pathlib import Path
 
@@ -16,13 +23,18 @@ from fastapi import (
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
+from sse_starlette.sse import EventSourceResponse
 
+from app.agent.context import DatasetContext
+from app.agent.streaming import friendly_error_detail
+from app.agent.suggestions import suggest_reports
 from app.core.config import settings
 from app.core.database import get_db
 from app.core.logging import logger
 from app.core.security import get_current_user
 from app.models.dataset import Dataset, DatasetStatus
 from app.models.dataset_column import DatasetColumn
+from app.models.report_suggestion import ReportSuggestion, SuggestionStatus
 from app.models.user import User
 from app.schemas.dataset import DatasetProfile, DatasetRead, DatasetUpdate
 from app.services import archive, ingestion, preprocessing, storage
@@ -70,11 +82,11 @@ async def upload_dataset(
 
     A ZIP may hold a whole folder tree; every CSV inside becomes part of the
     dataset, and its folder path is kept in the table name so the AI can lean
-    on the structure. All files are clustered by schema (see
-    ingestion.build_tables): files with matching columns are stacked into one
-    table, differently-shaped files each become their own table. All tables are
-    profiled and stored together, so suggestions and reports can query across
-    them. A single CSV behaves as before.
+    on the structure. This endpoint only validates and persists the raw files
+    (fast, so the client's upload progress bar is honest), then returns the row
+    as `uploading`. The heavy work — clustering by schema, cleaning, profiling,
+    and suggestion generation — runs in GET /{id}/process/stream so the client
+    can show it live. A single CSV behaves the same, just streamed.
     """
     if not files:
         raise HTTPException(
@@ -177,35 +189,36 @@ async def upload_dataset(
                 named_paths.append((member_name, str(member_path)))
         else:
             named_paths.append((name, str(path)))
-    dataset.status = DatasetStatus.profiling
+
+    # Hand the ingestion inputs off to the processing stream. The source count
+    # is recorded now so the UI can show it before profiling finishes.
+    storage.ingest_manifest_path(user.id, dataset.id).write_text(
+        json.dumps({"named_paths": named_paths, "csv_count": csv_count})
+    )
+    dataset.source_file_count = csv_count
     await db.commit()
+    await db.refresh(dataset)
+    logger.info(
+        "Dataset %s uploaded: %d source CSV(s) saved, awaiting processing",
+        dataset.id, csv_count,
+    )
+    return dataset
 
-    try:
-        # Cluster CSVs into one or more tables, clean + profile each. Blocking
-        # pandas work — run off the event loop.
-        tables_info, changes, preprocessed = await asyncio.to_thread(
-            ingestion.ingest_tables, named_paths, str(dataset_dir)
-        )
-    except ingestion.TooManyTablesError as exc:
-        # Only discoverable after parsing + clustering; the message is already
-        # user-facing, so pass it through without the parse-failure framing.
-        dataset.status = DatasetStatus.failed
-        dataset.error = str(exc)[:2048]
-        await db.commit()
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
-        ) from exc
-    except Exception as exc:  # noqa: BLE001 — surface any parse/IO failure to the user
-        logger.exception("Ingestion failed for dataset %s", dataset.id)
-        dataset.status = DatasetStatus.failed
-        dataset.error = str(exc)[:2048]
-        await db.commit()
-        await db.refresh(dataset)
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=f"Could not process CSV: {exc}",
-        )
 
+def _sse(event: str, payload: dict) -> dict:
+    return {"event": event, "data": json.dumps(payload, default=str)}
+
+
+def _apply_ingest_result(
+    dataset: Dataset,
+    db: AsyncSession,
+    tables_info: list[dict],
+    changes: list[dict],
+    preprocessed: bool,
+    csv_count: int,
+) -> None:
+    """Write the ingestion outcome onto the dataset row (mirrors what the old
+    synchronous upload did once ingest_tables returned)."""
     primary = tables_info[0]
     dataset.parquet_path = primary["parquet_path"]
     dataset.preprocessed = preprocessed
@@ -227,19 +240,146 @@ async def upload_dataset(
         dataset.tables = tables_info
         dataset.row_count = sum(t["row_count"] for t in tables_info)
         dataset.col_count = sum(t["col_count"] for t in tables_info)
-    dataset.status = DatasetStatus.ready
     # DatasetColumn rows hold the PRIMARY table (keeps the profile endpoint and
     # single-table assumptions working); per-table columns live in tables JSONB.
     db.add_all(
         [DatasetColumn(dataset_id=dataset.id, **p) for p in primary["columns"]]
     )
-    await db.commit()
-    await db.refresh(dataset)
-    logger.info(
-        "Dataset %s ready: %d rows x %d cols across %d table(s)",
-        dataset.id, dataset.row_count, dataset.col_count, len(tables_info),
-    )
-    return dataset
+    dataset.status = DatasetStatus.ready
+
+
+@router.get("/{dataset_id}/process/stream")
+async def stream_processing(
+    dataset_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """Run (and stream, live) everything between raw upload and a ready dataset:
+    cluster the CSVs into tables, clean + profile them, and generate the first
+    batch of report suggestions. Mirrors the report stream's SSE shape.
+
+    Events: `step` ({key, state, label, detail}) for each phase, `done`
+    ({dataset_id, row_count, col_count, tables, source_file_count}) when the
+    dataset is ready to analyze, or `error` ({detail}) on failure. Re-opening
+    the stream after completion just replays `done` (safe on reconnect)."""
+    dataset = await _get_owned_dataset(dataset_id, user, db)
+
+    if dataset.status == DatasetStatus.ready:
+        async def replay():
+            yield _sse("done", {
+                "dataset_id": str(dataset.id),
+                "row_count": dataset.row_count,
+                "col_count": dataset.col_count,
+                "tables": len(dataset.tables) if dataset.tables else 1,
+                "source_file_count": dataset.source_file_count,
+            })
+        return EventSourceResponse(replay())
+
+    manifest_path = storage.ingest_manifest_path(user.id, dataset.id)
+    if not manifest_path.exists():
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This upload can't be processed — please upload the file again.",
+        )
+    manifest = json.loads(manifest_path.read_text())
+    named_paths: list[tuple[str, str]] = [tuple(p) for p in manifest["named_paths"]]
+    csv_count: int = manifest["csv_count"]
+    dataset_dir = storage.dataset_dir(user.id, dataset.id)
+
+    async def event_generator():
+        # A retried stream (e.g. after a transient failure) starts clean.
+        dataset.status = DatasetStatus.profiling
+        dataset.error = None
+        await db.commit()
+
+        # Bridge the blocking ingest's thread-side progress callback onto this
+        # event loop's queue, then relay each item as an SSE `step`.
+        loop = asyncio.get_running_loop()
+        queue: asyncio.Queue = asyncio.Queue()
+
+        def on_progress(key: str, state: str, label: str, detail: str | None) -> None:
+            loop.call_soon_threadsafe(
+                queue.put_nowait,
+                _sse("step", {"key": key, "state": state, "label": label, "detail": detail}),
+            )
+
+        try:
+            task = asyncio.create_task(
+                asyncio.to_thread(
+                    ingestion.ingest_tables, named_paths, str(dataset_dir),
+                    on_progress,
+                )
+            )
+            while not task.done() or not queue.empty():
+                try:
+                    yield await asyncio.wait_for(queue.get(), timeout=0.2)
+                except asyncio.TimeoutError:
+                    continue
+            tables_info, changes, preprocessed = await task
+
+            _apply_ingest_result(dataset, db, tables_info, changes, preprocessed, csv_count)
+            await db.commit()
+            await db.refresh(dataset)
+
+            # Generate the first batch of report ideas so the analyze page lands
+            # ready — unless some already exist (a re-run of this stream).
+            existing = await db.scalar(
+                select(ReportSuggestion.id).where(
+                    ReportSuggestion.dataset_id == dataset.id,
+                    ReportSuggestion.user_id == user.id,
+                ).limit(1)
+            )
+            if existing is None:
+                yield _sse("step", {"key": "ideas", "state": "active",
+                                    "label": "Generating report ideas", "detail": None})
+                columns = list(await db.scalars(
+                    select(DatasetColumn)
+                    .where(DatasetColumn.dataset_id == dataset.id)
+                    .order_by(DatasetColumn.position)
+                ))
+                ctx = DatasetContext.from_models(dataset, columns)
+                ideas = await suggest_reports(ctx, use_purpose=user.use_purpose)
+                db.add_all([
+                    ReportSuggestion(
+                        user_id=user.id, dataset_id=dataset.id,
+                        title=i["title"], question=i["question"],
+                        rationale=i["rationale"], chart_types=i["chart_types"],
+                        status=SuggestionStatus.suggested,
+                    )
+                    for i in ideas
+                ])
+                await db.commit()
+                yield _sse("step", {"key": "ideas", "state": "done",
+                                    "label": "Generating report ideas",
+                                    "detail": f"{len(ideas)} ready"})
+
+            manifest_path.unlink(missing_ok=True)
+            logger.info(
+                "Dataset %s ready: %d rows x %d cols across %d table(s)",
+                dataset.id, dataset.row_count, dataset.col_count, len(tables_info),
+            )
+            yield _sse("done", {
+                "dataset_id": str(dataset.id),
+                "row_count": dataset.row_count,
+                "col_count": dataset.col_count,
+                "tables": len(tables_info),
+                "source_file_count": csv_count,
+            })
+        except ingestion.TooManyTablesError as exc:
+            # User-facing message — pass through without parse-failure framing.
+            dataset.status = DatasetStatus.failed
+            dataset.error = str(exc)[:2048]
+            await db.commit()
+            yield _sse("error", {"detail": str(exc)})
+        except Exception as exc:  # noqa: BLE001 — surface any failure to the client
+            logger.exception("Processing failed for dataset %s", dataset.id)
+            detail = friendly_error_detail(exc)
+            dataset.status = DatasetStatus.failed
+            dataset.error = detail[:2048]
+            await db.commit()
+            yield _sse("error", {"detail": detail})
+
+    return EventSourceResponse(event_generator())
 
 
 @router.get("", response_model=list[DatasetRead])
